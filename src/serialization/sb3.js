@@ -771,6 +771,7 @@ const serialize = function (runtime, targetId, {allowOptimization = true} = {}) 
 
     obj.monitors = serializeMonitors(runtime.getMonitorState(), runtime, extensions);
 
+    console.log(extensions)
     obj.extensions = Array.from(extensions);
     const extensionURLs = getExtensionURLsToSave(extensions, runtime);
     if (extensionURLs) {
@@ -1090,6 +1091,7 @@ const parseScratchAssets = function (object, runtime, zip) {
 
     // Costumes from JSON.
     assets.costumePromises = (object.costumes || []).map(costumeSource => {
+        console.log(costumeSource.asset)
         // @todo: Make sure all the relevant metadata is being pulled out.
         const costume = {
             // costumeSource only has an asset if an image is being uploaded as

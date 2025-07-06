@@ -5,6 +5,8 @@ const VariablePool = require('./variable-pool');
 const jsexecute = require('./jsexecute');
 const environment = require('./environment');
 
+const currentMode = require('../util/mode')
+
 // Imported for JSDoc types, not to actually use
 // eslint-disable-next-line no-unused-vars
 const {IntermediateScript, IntermediateRepresentation} = require('./intermediate');
@@ -433,6 +435,11 @@ class JSGenerator {
         case 'addons.call':
             return new TypedInput(`(${this.descendAddonCall(node)})`, TYPE_UNKNOWN);
 
+        case 'args.boolean':
+            return new TypedInput(`toBoolean(p${node.index})`, TYPE_BOOLEAN);
+        case 'args.stringNumber':
+            return new TypedInput(`p${node.index}`, TYPE_UNKNOWN);
+
         case 'compat':
             // Compatibility layer inputs never use flags.
             return new TypedInput(`(${this.generateCompatibilityLayerCall(node, false)})`, TYPE_UNKNOWN);
@@ -446,6 +453,8 @@ class JSGenerator {
         case 'keyboard.pressed':
             return new TypedInput(`runtime.ioDevices.keyboard.getKeyIsDown(${this.descendInput(node.key).asSafe()})`, TYPE_BOOLEAN);
 
+        case 'keyboard.up':
+            return new TypedInput(`runtime.ioDevices.keyboard.getKeyIsUp(${this.descendInput(node.key).asSafe()})`, TYPE_BOOLEAN);
         case 'list.contains':
             return new TypedInput(`listContains(${this.referenceVariable(node.list)}, ${this.descendInput(node.item).asUnknown()})`, TYPE_BOOLEAN);
         case 'list.contents':
@@ -660,8 +669,6 @@ class JSGenerator {
             }
             return new TypedInput(`${procedureReference}(${joinedArgs})`, TYPE_UNKNOWN);
         }
-        case 'procedures.argument':
-            return new TypedInput(`p${node.index}`, TYPE_UNKNOWN);
 
         case 'sensing.answer':
             return new TypedInput(`runtime.ext_scratch3_sensing._answer`, TYPE_STRING);
@@ -844,7 +851,12 @@ class JSGenerator {
         case 'control.wait': {
             const duration = this.localVariables.next();
             this.source += `thread.timer = timer();\n`;
-            this.source += `var ${duration} = Math.max(0, 1000 * ${this.descendInput(node.seconds).asNumber()});\n`;
+            if(node.second=='s'){
+                this.source += `var ${duration} = Math.max(0, 1000 * ${this.descendInput(node.seconds).asNumber()});\n`;
+            }else{
+                this.source += `var ${duration} = Math.max(0, ${this.descendInput(node.seconds).asNumber()});\n`;
+            }
+            
             this.requestRedraw();
             // always yield at least once, even on 0 second durations
             this.yieldNotWarp();
@@ -862,15 +874,18 @@ class JSGenerator {
             break;
         }
         case 'control.while':
-            this.resetVariableInputs();
-            this.source += `while (${this.descendInput(node.condition).asBoolean()}) {\n`;
-            this.descendStack(node.do, new Frame(true));
-            if (node.warpTimer) {
-                this.yieldStuckOrNotWarp();
-            } else {
-                this.yieldLoop();
+            // console.log(this.mode)
+            if(currentMode.getMode()){
+                this.resetVariableInputs();
+                this.source += `while (${this.descendInput(node.condition).asBoolean()}) {\n`;
+                this.descendStack(node.do, new Frame(true));
+                if (node.warpTimer) {
+                    this.yieldStuckOrNotWarp();
+                } else {
+                    this.yieldLoop();
+                }
+                this.source += `}\n`;
             }
-            this.source += `}\n`;
             break;
 
         case 'counter.clear':
@@ -1160,7 +1175,7 @@ class JSGenerator {
             const value = this.localVariables.next();
             this.source += `const ${value} = ${this.descendInput(node.input).asUnknown()};`;
             // blocks like legacy no-ops can return a literal `undefined`
-            this.source += `if (${value} !== undefined) runtime.visualReport(target, "${sanitize(this.script.topBlockId)}", ${value});\n`;
+            this.source += `if (${value} !== undefined) runtime.visualReport("${sanitize(this.script.topBlockId)}", ${value});\n`;
             break;
         }
 
@@ -1341,8 +1356,6 @@ class JSGenerator {
         }
         const opcodeFunction = this.evaluateOnce(`runtime.getOpcodeFunction("${sanitize(opcode)}")`);
         result += `}, ${opcodeFunction}, ${this.isWarp}, ${setFlags}, "${sanitize(node.id)}", ${frameName})`;
-
-        this.yielded();
 
         return result;
     }

@@ -19,12 +19,17 @@ const LIST_TYPE = 'list';
  */
 
 /**
- * @typedef DescendedVariable
- * @property {'target'|'stage'} scope
- * @property {string} id
- * @property {string} name
- * @property {boolean} isCloud
+ * Create a variable codegen object.
+ * @param {'target'|'stage'} scope The scope of this variable -- which object owns it.
+ * @param {import('../engine/variable.js')} varObj The Scratch Variable
+ * @returns {*} A variable codegen object.
  */
+const createVariableData = (scope, varObj) => ({
+    scope,
+    id: varObj.id,
+    name: varObj.name,
+    isCloud: varObj.isCloud
+});
 
 /**
  * @param {string} code
@@ -197,7 +202,7 @@ class ScriptTreeGenerator {
                 };
             }
             return {
-                kind: 'procedures.argument',
+                kind: 'args.stringNumber',
                 index: index
             };
         }
@@ -218,7 +223,7 @@ class ScriptTreeGenerator {
                 };
             }
             return {
-                kind: 'procedures.argument',
+                kind: 'args.boolean',
                 index: index
             };
         }
@@ -598,6 +603,11 @@ class ScriptTreeGenerator {
                 kind: 'keyboard.pressed',
                 key: this.descendInputOfBlock(block, 'KEY_OPTION')
             };
+        case 'sensing_keyup':
+            return {
+                kind: 'keyboard.up',
+                key: this.descendInputOfBlock(block, 'KEY_OPTION')
+            };
         case 'sensing_mousedown':
             return {
                 kind: 'mouse.down'
@@ -801,7 +811,8 @@ class ScriptTreeGenerator {
             this.script.yields = true;
             return {
                 kind: 'control.wait',
-                seconds: this.descendInputOfBlock(block, 'DURATION')
+                seconds: this.descendInputOfBlock(block, 'DURATION'),
+                second:block.fields?.SECOND?.value || 'seconds'
             };
         case 'control_wait_until':
             this.script.yields = true;
@@ -1224,23 +1235,21 @@ class ScriptTreeGenerator {
         const variable = block.fields[fieldName];
         const id = variable.id;
 
-        if (id && Object.prototype.hasOwnProperty.call(this.variableCache, id)) {
+        if (Object.prototype.hasOwnProperty.call(this.variableCache, id)) {
             return this.variableCache[id];
         }
 
         const data = this._descendVariable(id, variable.value, type);
-        // If variable ID was null, this might do some unnecessary updates, but that is a rare
-        // edge case and it won't have any adverse effects anyways.
-        this.variableCache[data.id] = data;
+        this.variableCache[id] = data;
         return data;
     }
 
     /**
-     * @param {string|null} id The ID of the variable.
+     * @param {string} id The ID of the variable.
      * @param {string} name The name of the variable.
      * @param {''|'list'} type The variable type.
      * @private
-     * @returns {DescendedVariable} A parsed variable object.
+     * @returns {*} A parsed variable object.
      */
     _descendVariable (id, name, type) {
         const target = this.target;
@@ -1248,25 +1257,13 @@ class ScriptTreeGenerator {
 
         // Look for by ID in target...
         if (Object.prototype.hasOwnProperty.call(target.variables, id)) {
-            const currVar = target.variables[id];
-            return {
-                scope: 'target',
-                id: currVar.id,
-                name: currVar.name,
-                isCloud: currVar.isCloud
-            };
+            return createVariableData('target', target.variables[id]);
         }
 
         // Look for by ID in stage...
         if (!target.isStage) {
             if (stage && Object.prototype.hasOwnProperty.call(stage.variables, id)) {
-                const currVar = stage.variables[id];
-                return {
-                    scope: 'stage',
-                    id: currVar.id,
-                    name: currVar.name,
-                    isCloud: currVar.isCloud
-                };
+                return createVariableData('stage', stage.variables[id]);
             }
         }
 
@@ -1275,12 +1272,7 @@ class ScriptTreeGenerator {
             if (Object.prototype.hasOwnProperty.call(target.variables, varId)) {
                 const currVar = target.variables[varId];
                 if (currVar.name === name && currVar.type === type) {
-                    return {
-                        scope: 'target',
-                        id: currVar.id,
-                        name: currVar.name,
-                        isCloud: currVar.isCloud
-                    };
+                    return createVariableData('target', currVar);
                 }
             }
         }
@@ -1291,12 +1283,7 @@ class ScriptTreeGenerator {
                 if (Object.prototype.hasOwnProperty.call(stage.variables, varId)) {
                     const currVar = stage.variables[varId];
                     if (currVar.name === name && currVar.type === type) {
-                        return {
-                            scope: 'stage',
-                            id: currVar.id,
-                            name: currVar.name,
-                            isCloud: currVar.isCloud
-                        };
+                        return createVariableData('stage', currVar);
                     }
                 }
             }
@@ -1304,9 +1291,6 @@ class ScriptTreeGenerator {
 
         // Create it locally...
         const newVariable = new Variable(id, name, type, false);
-
-        // Intentionally not using newVariable.id so that this matches vanilla Scratch quirks regarding
-        // handling of null variable IDs.
         target.variables[id] = newVariable;
 
         if (target.sprite) {
@@ -1320,14 +1304,7 @@ class ScriptTreeGenerator {
             }
         }
 
-        return {
-            scope: 'target',
-            // If the given ID was null, this won't match the .id property of the Variable object.
-            // This is intentional to match vanilla Scratch quirks.
-            id,
-            name: newVariable.name,
-            isCloud: newVariable.isCloud
-        };
+        return createVariableData('target', newVariable);
     }
 
     descendProcedure (block) {

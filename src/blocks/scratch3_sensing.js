@@ -65,6 +65,7 @@ class Scratch3SensingBlocks {
             sensing_setdragmode: this.setDragMode,
             sensing_mousedown: this.getMouseDown,
             sensing_keypressed: this.getKeyPressed,
+            sensing_keyup: this.getKeyUp,
             sensing_current: this.current,
             sensing_dayssince2000: this.daysSince2000,
             sensing_loudness: this.getLoudness,
@@ -259,6 +260,11 @@ class Scratch3SensingBlocks {
 
     getKeyPressed (args, util) {
         return util.ioQuery('keyboard', 'getKeyIsDown', [args.KEY_OPTION]);
+        
+    }
+    getKeyUp(args, util){
+        console.log('按键被松开')
+        return util.ioQuery('keyboard', 'getKeyIsUp', [args.KEY_OPTION]);
     }
 
     daysSince2000 () {

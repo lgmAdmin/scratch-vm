@@ -27,7 +27,9 @@ class Scratch3EventBlocks {
             event_whentouchingobject: this.touchingObject,
             event_broadcast: this.broadcast,
             event_broadcastandwait: this.broadcastAndWait,
-            event_whengreaterthan: this.hatGreaterThanPredicate
+            event_whengreaterthan: this.hatGreaterThanPredicate,
+            event_when: this.eventWhen
+            
         };
     }
 
@@ -58,7 +60,10 @@ class Scratch3EventBlocks {
             },
             event_whenbroadcastreceived: {
                 restartExistingThreads: true
-            }
+            },
+            event_when: {
+                restartExistingThreads: true
+            },
         };
     }
 
@@ -67,6 +72,7 @@ class Scratch3EventBlocks {
     }
 
     hatGreaterThanPredicate (args, util) {
+        console.log('####')
         const option = Cast.toString(args.WHENGREATERTHANMENU).toLowerCase();
         const value = Cast.toNumber(args.VALUE);
         switch (option) {
@@ -131,6 +137,10 @@ class Scratch3EventBlocks {
                 }
             }
         }
+    }
+
+    eventWhen(args,util){
+
     }
 }
 

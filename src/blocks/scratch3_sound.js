@@ -173,10 +173,15 @@ class Scratch3SoundBlocks {
     }
 
     _playSound (args, util, storeWaiting) {
+        console.log('播放音乐')
+        console.log(args)
+        console.log(util)
+        console.log(storeWaiting)
         const index = this._getSoundIndex(args.SOUND_MENU, util);
         if (index >= 0) {
             const {target} = util;
             const {sprite} = target;
+            console.log(sprite)
             const {soundId} = sprite.sounds[index];
             if (sprite.soundBank) {
                 if (storeWaiting === STORE_WAITING) {

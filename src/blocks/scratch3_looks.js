@@ -592,6 +592,7 @@ class Scratch3LooksBlocks {
 
     getSize (args, util) {
         return Math.round(util.target.size);
+        // return '11111'
     }
 
     getBackdropNumberName (args) {
@@ -601,6 +602,7 @@ class Scratch3LooksBlocks {
         }
         // Else return name
         return stage.getCostumes()[stage.currentCostume].name;
+        // return '11111'
     }
 
     getCostumeNumberName (args, util) {

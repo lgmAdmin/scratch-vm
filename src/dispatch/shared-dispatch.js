@@ -84,6 +84,8 @@ class SharedDispatch {
 
                 // TODO: verify correct `this` after switching from apply to spread
                 // eslint-disable-next-line prefer-spread
+                // console.log(provider)
+                // console.log(method)
                 const result = provider[method].apply(provider, args);
                 return Promise.resolve(result);
             }

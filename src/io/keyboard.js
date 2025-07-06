@@ -171,6 +171,7 @@ class Keyboard {
         } else if (index > -1) {
             // If already present, remove from the list.
             this._keysPressed.splice(index, 1);
+            this.runtime.emit('KEY_RELEASED', scratchKey); // Trigger key release event
         }
         // Fix for https://github.com/LLK/scratch-vm/issues/2271
         if (Object.prototype.hasOwnProperty.call(data, 'keyCode')) {
@@ -199,6 +200,15 @@ class Keyboard {
         }
         const scratchKey = this._keyArgToScratchKey(keyArg);
         return this._keysPressed.indexOf(scratchKey) > -1;
+    }
+    getKeyIsUp (keyArg) {
+        if (keyArg === 'any') {
+            // If 'any', check if there are no keys pressed
+            return this._keysPressed.length === 0;
+        }
+        const scratchKey = this._keyArgToScratchKey(keyArg);
+        // If the key is not in the _keysPressed array, it means it has been released
+        return this._keysPressed.indexOf(scratchKey) === -1;
     }
 
     // tw: expose last pressed key

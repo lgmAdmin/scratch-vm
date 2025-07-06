@@ -4,13 +4,14 @@ const maybeFormatMessage = require('../util/maybe-format-message');
 
 const BlockType = require('./block-type');
 const SecurityManager = require('./tw-security-manager');
+//helloworld
+const Scratch3HelloBlocks = require('../extensions/scratch3_hello_world');
+
 
 // These extensions are currently built into the VM repository but should not be loaded at startup.
 // TODO: move these out into a separate repository?
 // TODO: change extension spec so that library info, including extension ID, can be collected through static methods
 
-
-//test git branch
 const defaultBuiltinExtensions = {
     // This is an example that isn't loaded with the other core blocks,
     // but serves as a reference for loading core blocks as extensions.
@@ -27,6 +28,40 @@ const defaultBuiltinExtensions = {
     makeymakey: () => require('../extensions/scratch3_makeymakey'),
     boost: () => require('../extensions/scratch3_boost'),
     gdxfor: () => require('../extensions/scratch3_gdx_for'),
+    helloWorld:() => require('../extensions/scratch3_hello_world'),
+    bricksmotor:() => require('../extensions/bricks_motor'),
+    brickstwomotor:() => require('../extensions/bricks_two_motor'),
+    brickslight:() => require('../extensions/bricks_light'),
+    brickssensors:() => require('../extensions/bricks_sensors'),
+    bricksevent:() => require('../extensions/bricks_event'),
+
+    robotimg:() => require('../extensions/robot_img'),
+    robotmove:() => require('../extensions/robot_move'),
+    robotsensors:() => require('../extensions/robot_sensors'),
+    robotevent:() => require('../extensions/robot_event'),
+    robotwifi:() => require('../extensions/robot_wifi'),
+    robotemote:() => require('../extensions/robot_emote'),
+    robotshow:() => require('../extensions/robot_show'),
+    robotsound:() => require('../extensions/robot_sound'),
+    robotactuator:() => require('../extensions/robot_actuator'),
+    matrix:() => require('../extensions/matrix'),
+    robotble:() => require('../extensions/robot_ble'),
+    robotteachable:() => require('../extensions/robot_teachable'),
+    robotapriltag:() => require('../extensions/robot_apriltag'),
+    robotcolordete:() => require('../extensions/robot_colordete'),
+    robotqr:() => require('../extensions/robot_qr'),
+    robotgood:() => require('../extensions/robot_good'),
+    robotface:() => require('../extensions/robot_face'),
+    robotcolorplace:() => require('../extensions/robot_colorplace'),
+
+    robotcolorxy:() => require('../extensions/robot_colorxy'),
+    robotcat:() => require('../extensions/robot_cat'),
+    robottraffic:() => require('../extensions/robot_traffic'),
+
+
+    deepseek:() => require('../extensions/deepseek'),
+    MicrobitIcreate:() => require('../extensions/ICreate_Microbit'),
+    MicrobiteIcreateP:() => require('../extensions/ICreate_Microbit_P'),
     // tw: core extension
     tw: () => require('../extensions/tw')
 };
@@ -132,6 +167,8 @@ class ExtensionManager {
         dispatch.setService('extensions', createExtensionService(this)).catch(e => {
             log.error(`ExtensionManager was unable to register extension service: ${JSON.stringify(e)}`);
         });
+
+
     }
 
     /**
@@ -279,25 +316,19 @@ class ExtensionManager {
 
     /**
      * Regenerate blockinfo for any loaded extensions
-     * @param {string} [optExtensionId] Optional extension ID for refreshing
      * @returns {Promise} resolved once all the extensions have been reinitialized
      */
-    refreshBlocks (optExtensionId) {
-        const refresh = serviceName => dispatch.call(serviceName, 'getInfo')
-            .then(info => {
-                info = this._prepareExtensionInfo(serviceName, info);
-                dispatch.call('runtime', '_refreshExtensionPrimitives', info);
-            })
-            .catch(e => {
-                log.error('Failed to refresh built-in extension primitives', e);
-            });
-        if (optExtensionId) {
-            if (!this._loadedExtensions.has(optExtensionId)) {
-                return Promise.reject(new Error(`Unknown extension: ${optExtensionId}`));
-            }
-            return refresh(this._loadedExtensions.get(optExtensionId));
-        }
-        const allPromises = Array.from(this._loadedExtensions.values()).map(refresh);
+    refreshBlocks () {
+        const allPromises = Array.from(this._loadedExtensions.values()).map(serviceName =>
+            dispatch.call(serviceName, 'getInfo')
+                .then(info => {
+                    info = this._prepareExtensionInfo(serviceName, info);
+                    dispatch.call('runtime', '_refreshExtensionPrimitives', info);
+                })
+                .catch(e => {
+                    log.error('Failed to refresh built-in extension primitives', e);
+                })
+        );
         return Promise.all(allPromises);
     }
 
@@ -529,6 +560,7 @@ class ExtensionManager {
             }
             break;
         case BlockType.BUTTON:
+            // console.log(blockInfo)
             if (blockInfo.opcode) {
                 log.warn(`Ignoring opcode "${blockInfo.opcode}" for button with text: ${blockInfo.text}`);
             }

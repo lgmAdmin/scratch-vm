@@ -101,6 +101,19 @@ const ArgumentTypeMap = (() => {
             fieldName: 'MATRIX'
         }
     };
+    map[ArgumentType.MATRIXCUSTOM] = {
+        shadow: {
+            type: 'matrixcustom',
+            fieldName: 'MATRIX_CUSTOM'
+        }
+    };
+
+    map[ArgumentType.MATRIXONEROW] = {
+        shadow: {
+            type: 'matrixonerow',
+            fieldName: 'MATRIX_ONEROW'
+        }
+    };
     map[ArgumentType.NOTE] = {
         shadow: {
             type: 'note',
@@ -122,6 +135,91 @@ const ArgumentTypeMap = (() => {
         shadow: {
             type: 'sound_sounds_menu',
             fieldName: 'SOUND_MENU'
+        }
+    };
+    map[ArgumentType.SLIDER] = {
+        shadow: {
+            type: 'math_slider',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES0_4] = {
+        shadow: {
+            type: 'numres0D4',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES0_9] = {
+        shadow: {
+            type: 'numres0D9',
+            fieldName: 'NUM'
+        }
+    };
+
+    map[ArgumentType.NUMRES40_500] = {
+        shadow: {
+            type: 'numres40D500',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES20_10000] = {
+        shadow: {
+            type: 'numres20D10000',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES0_255] = {
+        shadow: {
+            type: 'numres0D255',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES_255_255] = {
+        shadow: {
+            type: 'numresD255D255',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES0_300] = {
+        shadow: {
+            type: 'numres0D300',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES_100_100] = {
+        shadow: {
+            type: 'numresD100D100',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES0] = {
+        shadow: {
+            type: 'numres0',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES0_100] = {
+        shadow: {
+            type: 'numres0D100',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES_360_360] = {
+        shadow: {
+            type: 'numresD360D360',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES_32400_32400] = {
+        shadow: {
+            type: 'numresD32400D32400',
+            fieldName: 'NUM'
+        }
+    };
+    map[ArgumentType.NUMRES0_65535] = {
+        shadow: {
+            type: 'numres0D65535',
+            fieldName: 'NUM'
         }
     };
     return map;
@@ -1427,11 +1525,6 @@ class Runtime extends EventEmitter {
                 blockJSON.nextStatement = null; // null = available connection; undefined = terminal
             }
             break;
-        }
-
-        // Allow extensiosn to override outputShape
-        if (blockInfo.blockShape) {
-            blockJSON.outputShape = blockInfo.blockShape;
         }
 
         const blockText = Array.isArray(blockInfo.text) ? blockInfo.text : [blockInfo.text];
@@ -3078,14 +3171,11 @@ class Runtime extends EventEmitter {
 
     /**
      * Emit value for reporter to show in the blocks.
-     * @param {Target} target The target that the block was run in.
      * @param {string} blockId ID for the block.
      * @param {string} value Value to show associated with the block.
      */
-    visualReport (target, blockId, value) {
-        if (target === this.getEditingTarget()) {
-            this.emit(Runtime.VISUAL_REPORT, {id: blockId, value: String(value)});
-        }
+    visualReport (blockId, value) {
+        this.emit(Runtime.VISUAL_REPORT, {id: blockId, value: String(value)});
     }
 
     /**
@@ -3238,6 +3328,7 @@ class Runtime extends EventEmitter {
      * Report that the project has changed in a way that would affect serialization
      */
     emitProjectChanged () {
+        // console.log('111111111111111111111111111111111111')
         this.emit(Runtime.PROJECT_CHANGED);
     }
 

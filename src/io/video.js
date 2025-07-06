@@ -1,5 +1,49 @@
 const StageLayering = require('../engine/stage-layering');
+const jsQR = require('jsqr');  // 引入 jsQR 库
+const axios = require('axios')
+// const cv = require('opencv.js');  // 引入 OpenCV.js
+const path= require('path')
+// const opencvPath=path.join(__dirname, './model/opencv1.js')
+const cv = require('../util/model/opencv1')
+const tfjs = require('../util/model/tfjs.js')
+const tf=require('../util/model/tf-core.min.js')
+// const tf=require('../util/model/tfjs.js')
+require('../util/model/tf-converter.min.js')
+require('../util/model/tfjs-backend-webgl@latest.js')
 
+const tflite = require('../util/model/tfjs-tflite.js')
+// require('../util/model/teachablemachine-image.min.js')
+// require('../util/model/tf-backend-cpu.min.js')
+
+const faceapi = require('../util/model/face-api.min.js')
+tf.setBackend('webgl').then(()=>{
+    console.log('webgl后台')
+})
+// require('../util/model/tf-converter.min.js')
+const cocoSsd = require('../util/model/coco-ssd')
+
+const handTrack = require('../util/model/handtrack.min.js')
+
+const aiInfo = require('../util/aiInfo.js')
+const imageLoad = require('../util/imageLoad')
+const socket=require('../util/socket-connect')
+const { AprilTagFamily } = require('apriltag')
+
+const tagConfig36h11  = require('apriltag/families/36h11.json')
+
+
+// require('https://cdnjs.cloudflare.com/ajax/libs/mathjs/7.1.0/math.min.js')
+require('../util/model/lz-string.min.js')
+const Comlink = require('../util/model/comlink.js')
+const Base64 = require('../util/model/base64.js')
+let lastHash = null;
+let unchangedFrames = 0;
+const MAX_UNCHANGED = 10;
+
+let traficModel
+let model, webcam, labelContainer, maxPredictions;
+let isLoadVideo=false
+let THIS
 class Video {
     constructor (runtime) {
         this.runtime = runtime;
@@ -12,6 +56,7 @@ class Video {
          * @property {Function} getFrame - Return frame data from the video feed in
          * specified dimensions, format, and mirroring.
          */
+        THIS=this
         this.provider = null;
 
         /**
@@ -39,6 +84,196 @@ class Video {
          * @type {number}
          */
         this._forceTransparentPreview = false;
+
+        this.isQRDetectionActive = false; // 记录二维码检测是否激活
+        this.isFaceDetectionActive = false; // 记录人脸检测是否激活
+        this.preQrData=''
+
+        // 画布和上下文
+        this.canvas = document.createElement('canvas');
+        this.canvasCtx = this.canvas.getContext('2d');
+
+         // OpenCV相关的变量
+        this.src = null;
+        this.dst = null;
+        this.gray = null;
+        this.cap = null;
+        this.faces = null;
+        this.classifier = null;
+        this.FPS = 15;
+        this.faceDatabase = []; // 存储学习的人脸数据
+        this.labels = []; // 存储每个人脸的标签
+        this.faceCascade=null
+        this.faceskinId=null
+        this.faceDrawableId=null
+        this.renderer=null
+        this.faceNum=0
+        this.srcMat=null
+        this.grayMat=null
+        this.processVideoTimeout=null
+
+
+        //物体识别相关变量
+        this.cocomodel=null
+        this.isStartObject=false
+        this.isProcessingFrame=false
+        this.preObject=''
+        this.classNames = {
+            "person": "人",
+            "bicycle": "自行车",
+            "car": "汽车",
+            "motorcycle": "摩托车",
+            "airplane": "飞机",
+            "bus": "公交车",
+            "train": "火车",
+            "truck": "卡车",
+            "boat": "船",
+            "traffic light": "红绿灯",
+            "fire hydrant": "消防栓",
+            "stop sign": "停止标志",
+            "parking meter": "停车表",
+            "bench": "长椅",
+            "bird": "鸟",
+            "cat": "猫",
+            "dog": "狗",
+            "horse": "马",
+            "sheep": "羊",
+            "cow": "牛",
+            "elephant": "大象",
+            "bear": "熊",
+            "zebra": "斑马",
+            "giraffe": "长颈鹿",
+            "hat": "帽子",
+            "backpack": "背包",
+            "umbrella": "雨伞",
+            "handbag": "手袋",
+            "tie": "领带",
+            "suitcase": "行李箱",
+            "frisbee": "飞盘",
+            "skis": "滑雪板",
+            "snowboard": "滑雪板",
+            "sports ball": "体育球",
+            "kite": "风筝",
+            "baseball bat": "棒球棒",
+            "baseball glove": "棒球手套",
+            "skateboard": "滑板",
+            "surfboard": "冲浪板",
+            "tennis racket": "网球拍",
+            "bottle": "瓶子",
+            "wine glass": "葡萄酒杯",
+            "cup": "杯子",
+            "fork": "叉子",
+            "knife": "刀",
+            "spoon": "勺子",
+            "bowl": "碗",
+            "banana": "香蕉",
+            "apple": "苹果",
+            "sandwich": "三明治",
+            "orange": "橙子",
+            "broccoli": "西兰花",
+            "carrot": "胡萝卜",
+            "hot dog": "热狗",
+            "pizza": "比萨",
+            "donut": "甜甜圈",
+            "cake": "蛋糕",
+            "chair": "椅子",
+            "couch": "沙发",
+            "potted plant": "盆栽植物",
+            "bed": "床",
+            "dining table": "餐桌",
+            "toilet": "马桶",
+            "tv": "电视",
+            "laptop": "笔记本电脑",
+            "mouse": "鼠标",
+            "remote": "遥控器",
+            "keyboard": "键盘",
+            "cell phone": "手机",
+            "microwave": "微波炉",
+            "oven": "烤箱",
+            "toaster": "烤面包机",
+            "sink": "水槽",
+            "refrigerator": "冰箱",
+            "book": "书",
+            "clock": "钟",
+            "vase": "花瓶",
+            "scissors": "剪刀",
+            "teddy bear": "泰迪熊",
+            "hair drier": "吹风机"
+        };
+
+        //手势识别相关变量
+        this.model = null;
+        // this.handTrack = window.handTrack;
+        this.isGestureDetectionActive = false;
+        this.pose=['手掌张开','拳头']
+        this.preGesture=''
+        this.detectionParams = {
+            flipHorizontal: true, // 镜像翻转
+            maxNumBoxes: 1,       // 最多检测的手势数
+            scoreThreshold: 0.7   // 置信度阈值，值越低越容易检测到
+        };
+
+        //颜色追踪变量
+        this.lower_blue;
+        this.upper_blue;
+        this.capColor;
+        this.isColorBlockDetectionActive=false
+        this.lower_red1;
+        this.upper_red1;
+        this.lower_yellow;
+        this.upper_yellow;
+        this.lower_green;
+        this.upper_green;
+        this.lower_black;
+        this.upper_black;
+        this.lower_white;
+        this.upper_white
+
+
+        //颜色识别变量
+        this.isColorDetectionActive=false
+
+        this.colorGrid = Array.from({ length: 6 }, () => Array(8).fill('#000000')); // 初始化为黑色
+        //人脸识别变量
+
+        this.detecting = false;//检测状态
+        this.faceMatcher;
+
+        this.labeledDescriptors = [];
+
+        this.tempCanvas = document.createElement('canvas');
+        this.tempCtx = this.tempCanvas.getContext('2d');
+        this.displaySize;
+
+        this.maxFace
+        this.FRAME
+        this.allFace
+
+        this.faceImage
+
+        this.modelClass={
+            qr:false,
+            gesture:false,
+            face:false,
+            imaclassifer:false
+        }
+
+        this.modelTraffic=null
+        this.timerTraffic=null
+
+
+        this.detections=[];
+        this.imgSaveRequested=0;
+        this.isAprilTagActive=false
+
+        this.isColorPlaceDetectionActive = false;
+
+        this._canvas = document.createElement('canvas');
+        this._canvas.width = Video.DIMENSIONS[0];
+        this._canvas.height = Video.DIMENSIONS[1];
+        this._context = this._canvas.getContext('2d');
+
+        this.checkVideo=null
     }
 
     static get FORMAT_IMAGE_DATA () {
@@ -66,6 +301,14 @@ class Video {
         return 1;
     }
 
+    get video (){
+        return this.provider.video
+    }
+
+    get videoProvider(){
+        return this.provider
+    }
+
     /**
      * Set a video provider for this device. A default implementation of
      * a video provider can be found in scratch-gui/src/lib/video/video-provider
@@ -82,19 +325,160 @@ class Video {
      *
      * @return {Promise.<Video>} resolves a promise to this IO device when video is ready.
      */
-    enableVideo () {
+    async enableVideo () {
         if (!this.provider) return null;
-        return this.provider.enableVideo().then(() => this._setupPreview());
+        console.log('---------------------------')
+        console.log(this.provider)
+        this.disableVideo()
+        
+        window.addEventListener('offline', () => {
+            if(this.provider.constructor.name!='VideoProvider'){
+                imageLoad.setIsImage(false)
+                console.log('Network is offline. Disabling video feed.');
+                
+    
+                // this.stopQRDetection()
+                // this.stopWGestureRecognition()
+                // this.stopFaceDetection()
+                // this.stopWItem()
+                // this.stopWColorBlockDetection()
+                // this.stopAprilTag()
+                if(this.isQRDetectionActive){
+                    this.stopQRDetection()
+                }
+                if(this.isGestureDetectionActive){
+                    this.stopWGestureRecognition()
+                }
+                if(this.isFaceDetectionActive){
+                    this.stopFaceDetection()
+                }
+                if(this.isStartObject){
+                    this.stopWItem()
+                }
+                if(this.isColorBlockDetectionActive){
+                    this.stopWColorBlockDetection()
+                }
+                if(this.isAprilTagActive){
+                    this.stopAprilTag()
+                }
+                if(this.isColorDetectionActive){
+                    this.stopColorDetection()
+                }
+    
+                this.disableVideo();
+                this.stopVideo()
+            }
+            
+        });
+        return this.provider.enableVideo().then(async () =>{
+            this._setupPreview() 
+
+            await new Promise(resolve => setTimeout(resolve, 1500));  
+            if(this.checkVideo) clearInterval(this.checkVideo)
+            unchangedFrames=0
+            this.checkVideo=setInterval(async() => {
+                if (!this._context || !this._canvas) return;
+                try{
+                    this._context.drawImage(this.provider._img, 0, 0);
+                    const imageData = this._context.getImageData(0, 0, this._canvas.width, this._canvas.height);
+                    const hash = this.hashImageData(imageData.data);
+            
+                    if (hash === lastHash) {
+                        unchangedFrames++;
+                    } else {
+                        unchangedFrames = 0;
+                    }
+                    lastHash = hash;
+            
+                    if (unchangedFrames >= MAX_UNCHANGED) {
+                        console.warn("图像静止太久，可能断流！");
+                        // this.channelLoad.postMessage(false);
+                        // alert("图传已中断！");
+                        imageLoad.setIsImage(false)
+                        imageLoad.setIsK210(false)
+                        
+                        if(this.isQRDetectionActive){
+                            this.stopQRDetection()
+                        }
+                        if(this.isGestureDetectionActive){
+                            this.stopWGestureRecognition()
+                        }
+                        if(this.isFaceDetectionActive){
+                            this.stopFaceDetection()
+                        }
+                        if(this.isStartObject){
+                            this.stopWItem()
+                        }
+                        if(this.isColorBlockDetectionActive){
+                            this.stopWColorBlockDetection()
+                        }
+                        if(this.isAprilTagActive){
+                            this.stopAprilTag()
+                        }
+                        if(this.isColorDetectionActive){
+                            this.stopColorDetection()
+                        }
+
+
+                        let jsonData={
+                            "command":"camera",
+                            "params":{
+                                "mode":0
+                            }
+                        }
+                        // let str = `robot.close_camera()\r`;
+                        let str = JSON.stringify(jsonData)
+                        if(socket.checkWebSocketStatus()==4 || socket.checkWebSocketStatus()==0){
+                            console.log('断开连接，尝试重连')
+                            let context=[]
+                            context.push(str)
+                            await socket.setSocket(context)
+                        }else if(socket.checkWebSocketStatus()==2){
+                            socket.getSocket().send(str);
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 50));  
+                        this.disableVideo();
+                        this.stopVideo()
+                        clearInterval(this.checkVideo)
+                    }
+                }catch(e){
+                    console.log('filed'+e)
+                    if(this.provider.constructor.name!='VideoProvider'){
+                        this.disableVideo();
+                        
+                    }
+                    clearInterval(this.checkVideo)
+                    
+                }
+            }, 1000);
+            // this._context.scale(-1, 1);
+
+            // Start the image update loop
+            // this._startImageLoop();
+            
+        } );
     }
 
+
+    hashImageData(data) {
+        let hash = 0;
+        for (let i = 0; i < data.length; i += 1000) {
+            hash += data[i]; // 简单 hash 算法
+        }
+        return hash;
+    }
     /**
      * Disable video stream (turn video off)
      * @return {void}
      */
     disableVideo () {
+        console.log('#####————————')
+        isLoadVideo=false
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this._disablePreview();
         if (!this.provider) return null;
         this.provider.disableVideo();
+        clearInterval(this.checkVideo)
     }
 
     /**
@@ -116,8 +500,2500 @@ class Video {
         format = Video.FORMAT_IMAGE_DATA,
         cacheTimeout = this._frameCacheTimeout
     }) {
-        if (this.provider) return this.provider.getFrame({dimensions, mirror, format, cacheTimeout});
+        // console.log(this.provider.constructor.name)
+        
+        if (this.provider && this.provider.constructor.name!='VideoProvider'){
+            // console.log(this.provider.getFrame({dimensions, mirror, format, cacheTimeout}))
+            if(!this.provider.getFrame({dimensions, mirror, format, cacheTimeout})){
+                if(isLoadVideo){
+                    isLoadVideo=false
+                    console.log('发送了一次关闭')
+                    try{
+                    
+                        if(this.isQRDetectionActive){
+                            this.stopQRDetection()
+                        }
+                        if(this.isGestureDetectionActive){
+                            this.stopWGestureRecognition()
+                        }
+                        if(this.isFaceDetectionActive){
+                            this.stopFaceDetection()
+                        }
+                        if(this.isStartObject){
+                            this.stopWItem()
+                        }
+                        if(this.isColorBlockDetectionActive){
+                            this.stopWColorBlockDetection()
+                        }
+                        if(this.isAprilTagActive){
+                            this.stopAprilTag()
+                        }
+                        if(this.isColorDetectionActive){
+                            this.stopColorDetection()
+                        }
+        
+        
+                        let jsonData={
+                            "command":"camera",
+                            "params":{
+                                "mode":0
+                            }
+                        }
+                        // let str = `robot.close_camera()\r`;
+                        let str = JSON.stringify(jsonData)
+                        if(socket.checkWebSocketStatus()==4 || socket.checkWebSocketStatus()==0){
+                            console.log('断开连接，尝试重连')
+                            let context=[]
+                            context.push(str)
+                            socket.setSocket(context)
+                        }else if(socket.checkWebSocketStatus()==2){
+                            socket.getSocket().send(str);
+                        }
+                        this.disableVideo();
+                        this.stopVideo()
+                    }catch(e){
+                        this.disableVideo();
+                    }
+                }
+            }else{
+                isLoadVideo=true
+            }
+            return this.provider.getFrame({dimensions, mirror, format, cacheTimeout});
+        }else if( this.provider.constructor.name=='VideoProvider'){
+            return this.provider.getFrame({dimensions, mirror, format, cacheTimeout});
+        }
+        console.log('-----------------------------------------------')
         return null;
+    }
+
+
+    // 开始二维码检测
+    startQRDetection() {
+        // if (!this.provider || !this.provider.videoReady) {
+        //     alert("摄像头未开启");
+        //     return;
+        // }
+        console.log('开始二维码检测')
+
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+
+        const { renderer } = this.runtime;
+        this.renderer = renderer;
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0);
+
+        this.isQRDetectionActive = true;
+        this.processQRDetection();
+    }
+
+    // 停止二维码检测
+    stopQRDetection() {
+        this.isQRDetectionActive = false;
+        
+        cancelAnimationFrame(this.processQRDetection);  // 清除动画帧
+
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+        this.runtime.requestRedraw();
+    }
+
+
+    calculateCenter(points) {
+        let sumX = 0, sumY = 0;
+        for (const point of points) {
+          sumX += point.x;
+          sumY += point.y;
+        }
+        return {
+          x: sumX / points.length,
+          y: sumY / points.length
+        };
+      }
+    // 处理视频帧并识别二维码
+    async processQRDetection() {
+        let location =[]
+        if (!this.isQRDetectionActive) return;
+        if (this.provider && this.provider.videoReady) {
+            let imageData;
+
+            try{
+                imageData = this.getFrame({
+                    format: Video.FORMAT_IMAGE_DATA,
+                    cacheTimeout: this.runtime.currentStepTime
+                });
+            }catch(e){
+                console.log(e)
+            }
+
+            if (imageData) {
+                // let canvas = document.createElement('canvas');
+                // let canvasCtx = canvas.getContext('2d');
+                this.canvas.width = Video.DIMENSIONS[0];
+                this.canvas.height = Video.DIMENSIONS[1];
+                this.canvasCtx.putImageData(imageData, 0, 0);
+                const qrCode = jsQR(this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height).data, this.canvas.width, this.canvas.height);
+
+                // 清除 Canvas 上的内容
+                this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                if (qrCode) {
+                    // console.log("识别到二维码：", qrCode.data);
+                    // const data = { data: qrCode.data};
+                    // console.log(qrCode.location.topLeftFinderPattern)
+
+                    // console.log(qrCode)
+                    aiInfo.setQr(qrCode.data)
+                    location.push(qrCode.location.topLeftFinderPattern)
+                    location.push(qrCode.location.topRightFinderPattern)
+                    location.push(qrCode.location.bottomRightAlignmentPattern)
+                    location.push(qrCode.location.bottomLeftFinderPattern)
+                    
+                    let center=this.calculateCenter(location)
+
+                    location.push({
+                        x:Math.round(center.x),
+                        y:Math.round(center.y)
+                    })
+                    // console.log(location)
+                    aiInfo.setQrLocation(location)
+
+                    let height=Math.round(Math.abs(qrCode.location.topLeftFinderPattern.y-qrCode.location.bottomLeftFinderPattern.y))
+                    let width=Math.round(Math.abs(qrCode.location.topLeftFinderPattern.x-qrCode.location.topRightFinderPattern.x))
+
+                    let wh=[width,height]
+                    aiInfo.setQrWh(wh)
+
+                    // this.canvasCtx.strokeStyle = 'red';
+                    // this.canvasCtx.lineWidth = 2;
+                    // this.canvasCtx.strokeRect(qrCode.location.topLeftFinderPattern.x, qrCode.location.topLeftFinderPattern.y, width, height);
+
+
+                    const corners = qrCode.location;
+                    this.canvasCtx.beginPath();
+                    this.canvasCtx.moveTo(corners.topLeftCorner.x, corners.topLeftCorner.y);
+                    this.canvasCtx.lineTo(corners.topRightCorner.x, corners.topRightCorner.y);
+                    this.canvasCtx.lineTo(corners.bottomRightCorner.x, corners.bottomRightCorner.y);
+                    this.canvasCtx.lineTo(corners.bottomLeftCorner.x, corners.bottomLeftCorner.y);
+                    this.canvasCtx.closePath();
+
+                    this.canvasCtx.strokeStyle = 'red';
+                    this.canvasCtx.lineWidth = 2;
+                    this.canvasCtx.stroke();
+
+                    const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                    // console.log(ImageData)
+                    this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+                    this.runtime.requestRedraw();
+                    // console.log('---------')
+
+                   
+                    
+                    // 在这里可以根据需求显示或处理二维码数据
+                    this.runtime.emit('qrDetected', qrCode.data);
+
+
+                } else {
+                    // console.log("未识别到二维码");
+                    aiInfo.setQr(null)
+
+                    aiInfo.setQrLocation(null)
+
+                    this.runtime.emit('qrDetected', null);
+                    this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                    // console.log(ImageData)
+                    this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+                    this.runtime.requestRedraw();
+                }
+                
+            }
+        }
+
+        // 循环处理下一帧
+        requestAnimationFrame(this.processQRDetection.bind(this));
+    }
+
+
+
+
+     // 初始化 OpenCV 和人脸检测
+     async initializeOpenCV() {
+
+        const currentURL = window.location.href;
+
+        // 获取前一级路径
+        const oneLevelUp = currentURL.substring(0, currentURL.lastIndexOf('/'));
+        // 获取前两级路径
+        const twoLevelsUp = oneLevelUp.substring(0, oneLevelUp.lastIndexOf('/'));
+        const modelPath =twoLevelsUp+'/static/model';  // 你的模型路径
+        console.log(modelPath)
+        console.log(window.location.href)
+
+        try {
+            const response = await fetch(modelPath+'/haarcascade_frontalface_default.xml');
+            if (!response.ok) {
+                throw new Error(`获取人脸模型失败: ${response.statusText}`);
+            }
+            const buffer = await response.arrayBuffer(); // 读取为二进制数据
+            console.log('haarcascade_frontalface_default.xml加载成功');
+
+            console.log(cv);
+
+            console.log('OpenCV.js 已初始化');
+            this.classifier = new cv.CascadeClassifier();
+            const data = new Uint8Array(buffer);
+            cv.FS_createDataFile('/', 'haarcascade_frontalface_default.xml', data, true, false, false);
+
+            if (!this.classifier.load('haarcascade_frontalface_default.xml')) {
+                console.error('无法加载人脸模型文件');
+                return;
+            }
+            console.log('人脸模型加载成功');
+            
+            // cv.onRuntimeInitialized = () => {
+                
+            // };
+        } catch (error) {
+            console.error(`Error loading model: ${error.message}`);
+        }
+    }
+
+    // 提取 LBP 特征
+    extractLBPFeatures(faceImage) {
+        const gray = new cv.Mat();
+        cv.cvtColor(faceImage, gray, cv.COLOR_RGBA2GRAY);
+
+        // 创建 LBP 矩阵
+        const lbp = new cv.Mat(gray.rows, gray.cols, cv.CV_8UC1);
+
+        // 手动实现 LBP
+        for (let i = 1; i < gray.rows - 1; i++) {
+            for (let j = 1; j < gray.cols - 1; j++) {
+                const center = gray.ucharPtr(i, j)[0];
+                let code = 0;
+                code |= (gray.ucharPtr(i - 1, j - 1)[0] > center) << 7;
+                code |= (gray.ucharPtr(i - 1, j)[0] > center) << 6;
+                code |= (gray.ucharPtr(i - 1, j + 1)[0] > center) << 5;
+                code |= (gray.ucharPtr(i, j + 1)[0] > center) << 4;
+                code |= (gray.ucharPtr(i + 1, j + 1)[0] > center) << 3;
+                code |= (gray.ucharPtr(i + 1, j)[0] > center) << 2;
+                code |= (gray.ucharPtr(i + 1, j - 1)[0] > center) << 1;
+                code |= (gray.ucharPtr(i, j - 1)[0] > center) << 0;
+                lbp.ucharPtr(i, j)[0] = code;
+            }
+        }
+
+        // 将 lbp 包装成 MatVector
+        const images = new cv.MatVector();
+        images.push_back(lbp);
+
+        // 计算 LBP 直方图
+        const histSize = [256];
+        const ranges = [0, 256];
+        const hist = new cv.Mat();
+        cv.calcHist(images, [0], new cv.Mat(), hist, histSize, ranges);
+
+        // 归一化直方图
+        cv.normalize(hist, hist, 1, 0, cv.NORM_L2);
+
+        // 释放内存
+        gray.delete();
+        lbp.delete();
+        images.delete();
+
+        return hist;
+    }
+
+    // 计算直方图距离
+    calculateHistogramDistance(hist1, hist2) {
+        return cv.compareHist(hist1, hist2, cv.HISTCMP_CHISQR);
+    }
+
+    // 查找最接近的人脸
+    findClosestMatch(faceImage) {
+        const features = this.extractLBPFeatures(faceImage);
+        let minDistance = Infinity;
+        let matchedName = '陌生人';
+    
+        // 设置一个阈值（可以根据实际情况调整）
+        const threshold = 0.5;
+    
+        for (const entry of this.faceDatabase) {
+            const distance = this.calculateHistogramDistance(features, entry.features);
+            if (distance < minDistance) {
+                minDistance = distance;
+                matchedName = entry.name;
+            }
+        }
+    
+
+        // console.log(minDistance)
+        // 如果最小距离大于阈值，则认为是陌生人
+        if (minDistance > threshold) {
+            matchedName = '陌生人';
+        }
+    
+        features.delete(); // 在匹配完成后释放
+        return matchedName;
+    }
+
+    // 学习新人脸
+    learnNewFace(name) {
+        const features = this.extractLBPFeatures(this.faceImage);
+        this.faceDatabase.push({ name, features });
+        console.log(`Learned new face: ${name}`);
+    }
+
+    reSetFace(){
+        this.faceDatabase=[]
+    }
+
+    // 启动人脸检测
+    async startFaceDetection() {
+        if (!this.classifier) {
+            console.log('OpenCV 尚未初始化，开始初始化...');
+            await this.initializeOpenCV();
+        }
+
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+
+        const { renderer } = this.runtime;
+        this.renderer = renderer;
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0);
+
+        this.isFaceDetectionActive = true;
+        this.processVideo();
+    }
+
+    // 停止人脸检测
+    stopFaceDetection() {
+        this.isFaceDetectionActive = false;
+        clearTimeout(this.processVideoTimeout);
+        if (this.src) this.src.delete();
+        if (this.dst) this.dst.delete();
+        if (this.gray) this.gray.delete();
+        if (this.cap) this.cap.delete();
+        if (this.faceImage) {
+            this.faceImage.delete();
+            this.faceImage = null;
+        }
+
+        try {
+            cv.FS_unlink('/haarcascade_frontalface_default.xml');
+        } catch (e) {
+            console.log('模型文件之前不存在');
+        }
+        // if (this.faces) this.faces.delete();
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+        this.runtime.requestRedraw();
+    }
+
+    // 处理视频帧并进行人脸检测
+    // async processVideo() {
+    //     if (!this.isFaceDetectionActive) {
+    //         return;
+    //     }
+
+    //     let begin = Date.now();
+
+    //     try {
+    //         const imageData = this.getFrame({
+    //             format: Video.FORMAT_IMAGE_DATA,
+    //             cacheTimeout: this.runtime.currentStepTime
+    //         });
+
+    //         this.srcMat = cv.matFromImageData(imageData);
+    //         this.grayMat = new cv.Mat();
+    //         cv.cvtColor(this.srcMat, this.grayMat, cv.COLOR_RGBA2GRAY);
+
+            
+    //         this.faces = new cv.RectVector();
+    //         const minSize = new cv.Size(30, 30);
+    //         const maxSize = new cv.Size(300, 300);
+    //         this.classifier.detectMultiScale(this.grayMat, this.faces, 1.1, 3, 0, minSize, maxSize);
+
+    //         this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    //         aiInfo.setFaceNum(this.faces.size())
+    //         for (let i = 0; i < this.faces.size(); i++) {
+    //             const face = this.faces.get(i);
+    //             // console.log(face)
+    //             const faceImage = this.srcMat.roi(face);
+
+
+    //             let wh=[Math.round(face.width),Math.round(face.height)]
+    //             aiInfo.setFaceWh(wh)
+
+    //             aiInfo.setFaceLocation({
+    //                 x:Math.round(face.x-255+face.width/2),
+    //                 y:Math.round(face.y-223+face.height/2)
+    //             })
+
+    //             this.faceImage=faceImage
+    //             const name = this.findClosestMatch(faceImage);
+
+    //             if(name!='陌生人'){
+    //                 aiInfo.setIsSym(true)
+    //             }else{
+    //                 aiInfo.setIsSym(false)
+    //             }
+
+    //             aiInfo.setResultFace(name)
+    //             // 绘制人脸框
+    //             this.canvasCtx.strokeStyle = 'red';
+    //             this.canvasCtx.lineWidth = 2;
+    //             this.canvasCtx.strokeRect(face.x, face.y, face.width, face.height);
+
+    //             // 显示名称
+    //             this.canvasCtx.fillStyle = 'red';
+    //             this.canvasCtx.font = '16px Arial';
+    //             this.canvasCtx.fillText(name, face.x, face.y - 10);
+    //         }
+
+    //         const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+    //         this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+    //         this.runtime.requestRedraw();
+    //     } catch (e) {
+    //         // console.log(e);
+    //     } finally {
+    //         this.srcMat.delete();
+    //         this.grayMat.delete();
+    //         this.faces.delete();
+    //     }
+
+    //     let delay = 1000 / this.FPS - (Date.now() - begin);
+    //     this.processVideoTimeout=setTimeout(() => this.processVideo(), delay);
+    // }
+
+
+    async processVideo() {
+        if (!this.isFaceDetectionActive) return;
+    
+        const begin = Date.now();
+    
+        try {
+            // 1. 获取当前帧
+            const imageData = this.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: this.runtime.currentStepTime
+            });
+    
+            // 2. 图像处理
+            const srcMat = cv.matFromImageData(imageData);
+            const grayMat = new cv.Mat();
+            cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
+    
+            const faces = new cv.RectVector();
+            const minSize = new cv.Size(30, 30);
+            const maxSize = new cv.Size(300, 300);
+            this.classifier.detectMultiScale(grayMat, faces, 1.1, 3, 0, minSize, maxSize);
+    
+            // 3. 清空画布
+            this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            aiInfo.setFaceNum(faces.size());
+    
+            for (let i = 0; i < faces.size(); i++) {
+                const face = faces.get(i);
+    
+                const faceImage = srcMat.roi(face);
+                const wh = [Math.round(face.width), Math.round(face.height)];
+                aiInfo.setFaceWh(wh);
+                aiInfo.setFaceLocation({
+                    x: Math.round(face.x - 255 + face.width / 2),
+                    y: Math.round(face.y - 223 + face.height / 2)
+                });
+    
+                // 复制用于匹配的 faceImage
+                this.faceImage = faceImage.clone(); // 避免外部引用影响原图
+    
+                const name = this.findClosestMatch(faceImage);
+                aiInfo.setIsSym(name !== '陌生人');
+                aiInfo.setResultFace(name);
+    
+                // 绘制人脸框与标签
+                this.canvasCtx.strokeStyle = 'red';
+                this.canvasCtx.lineWidth = 2;
+                this.canvasCtx.strokeRect(face.x, face.y, face.width, face.height);
+                this.canvasCtx.fillStyle = 'red';
+                this.canvasCtx.font = '16px Arial';
+                this.canvasCtx.fillText(name, face.x, face.y - 10);
+    
+                // ✅ 释放每个 faceImage 临时 Mat
+                faceImage.delete();
+            }
+    
+            // 4. 更新渲染
+            const renderedImage = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+            this.renderer.updateBitmapSkin(this.faceSkinId, renderedImage, 1);
+            this.runtime.requestRedraw();
+    
+            // ✅ 释放 Mat 对象
+            srcMat.delete();
+            grayMat.delete();
+            faces.delete();
+        } catch (e) {
+            console.warn('processVideo error:', e);
+    
+            // 出错时也清空画布，避免残影
+            this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            const fallbackImage = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+            this.renderer.updateBitmapSkin(this.faceSkinId, fallbackImage, 1);
+        }
+    
+        // 5. 控制帧率，使用 setTimeout 避免重入
+        const delay = Math.max(0, 1000 / this.FPS - (Date.now() - begin));
+        this.processVideoTimeout = setTimeout(() => this.processVideo(), delay);
+    }
+    
+
+    //人脸识别
+    //加载相关模型
+    async loadfaceAPIModel(){
+
+        const currentURL = window.location.href;
+
+        // 获取前一级路径
+        const oneLevelUp = currentURL.substring(0, currentURL.lastIndexOf('/'));
+        // 获取前两级路径
+        const twoLevelsUp = oneLevelUp.substring(0, oneLevelUp.lastIndexOf('/'));
+        const modelPath =twoLevelsUp+'/static/model';  // 你的模型路径
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
+        console.log("faceAPI模型加载完成");
+    }
+
+
+    // 开始人脸检测（img）
+    async startWDetection(){  
+        await this.loadfaceAPIModel()
+        
+        this.detecting = true;
+
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+        this.displaySize = { width: Video.DIMENSIONS[0], height: Video.DIMENSIONS[1] };
+
+       
+
+
+        // 设置 Canvas 的大小
+        faceapi.matchDimensions(this.canvas, this.displaySize);
+        // 检测循环
+
+        const {renderer} = this.runtime;
+        this.renderer=renderer
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+        // 创建一个新的 skin 和 drawable 用于 face detection
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        console.log('创建的 faceSkinId:', this.faceSkinId);
+        
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0); // 确保没有透明度
+        
+
+        this.detect();
+    }
+
+    async detect() {
+        if (!this.detecting) return;
+
+        let imageData
+        try{
+            imageData = this.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: this.runtime.currentStepTime
+            });
+
+            
+        }catch(e){
+            console.log(e)
+        }
+
+        // // 设置 Canvas 尺寸与 imageData 一致
+        // this.tempCanvas.width = imageData.width;
+        // this.tempCanvas.height = imageData.height;
+
+        // // 将 imageData 绘制到临时 Canvas 上
+        // this.tempCtx.putImageData(imageData, 0, 0);
+
+        // const img = new Image();
+        // img.src = this.tempCanvas.toDataURL(); // 将 canvas 转为 Image
+        // await img.decode(); // 确保图片加载完成
+
+        const img = await faceapi.createCanvasFromMedia(imageData);
+
+        // console.log('Canvas 渲染完成:', this.tempCanvas.toDataURL()); // 检查是否成功绘制
+        const options = new faceapi.SsdMobilenetv1Options({
+            minConfidence: 0.1, // 置信度阈值
+            maxResults: 1,     // 最大检测人脸数
+        });
+        
+        // wifiImg.width = 40;  
+        // wifiImg.height = 30;
+        let detections
+        try{
+            detections = await faceapi.detectAllFaces(img,options)
+            .withFaceLandmarks().withFaceDescriptors();
+        }catch{
+            console.log('error'+e)
+        }
+
+        const resizedDetections = faceapi.resizeResults(detections, this.displaySize);
+
+        // 清除 Canvas
+        
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.canvasCtx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
+
+        if (detections.length > 0) {
+            //statusText.textContent = `状态: 检测到 ${detections.length} 张人脸`;
+
+            detections.forEach((detection, i) => {
+                const box = detection.detection.box;
+                const text = this.faceMatcher
+                    ? this.faceMatcher.findBestMatch(detection.descriptor).toString()
+                    : "陌生人";
+                
+                // 绘制边框和文本
+                this.canvasCtx.strokeStyle = "blue";
+                this.canvasCtx.lineWidth = 2;
+                this.canvasCtx.strokeRect(box.x, box.y, box.x+box.width, box.y+box.height);
+                this.canvasCtx.fillStyle = "red";
+                this.canvasCtx.fillText(text, box.x, box.y - 10);
+            });
+        } else {
+            console.log('未检测到人脸')
+            //statusText.textContent = "状态: 未检测到人脸";
+        }
+
+        // 更新 renderer 的 skin 内容
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+        console.log('更新 BitmapSkin 内容:', this.renderer.skins[this.faceSkinId]);
+        this.runtime.requestRedraw();
+        if (this.detecting) requestAnimationFrame(this.detect.bind(this));
+
+        
+
+       
+        // requestAnimationFrame(detect); // 保证检测与渲染同步
+    }
+
+
+    async learnMFace() {
+        // const name = document.getElementById("faceNameInput").value.trim();
+        const name=aiInfo.getFaceName()
+        if (!name) {
+            alert("请输入一个名称！");
+            return;
+        }
+        const options = new faceapi.SsdMobilenetv1Options({
+            minConfidence: 0.1, // 置信度阈值
+            maxResults: 1,     // 最大检测人脸数
+        });
+        const detections = await faceapi.detectSingleFace(this.tempCanvas, options)
+            .withFaceLandmarks().withFaceDescriptor();
+
+        if (!detections) {
+            alert("未检测到人脸，无法学习！");
+            return;
+        }
+
+        this.labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(name, [detections.descriptor]));
+        this.faceMatcher = new faceapi.FaceMatcher(this.labeledDescriptors, 0.6);
+
+        alert(`人脸 ${name} 已成功学习！`);
+    }
+
+   
+
+
+    // 结束人脸检测
+    stopWDetection(){
+        this.detecting = false;
+        // startWDetectionButton.style.display = "block";
+        // stopWDetectionButton.style.display = "none";
+        // learnMFaceButton.style.display = "none";
+        // document.getElementById('facename').style.display = "none";
+
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        cancelAnimationFrame(this.detect);
+        // 更新 renderer 的 skin 内容
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+        this.runtime.requestRedraw();
+    }
+
+
+
+    // 加载 COCO-SSD 模型
+    async loadItemModel() {
+
+        const currentURL = window.location.href;
+
+        // 获取前一级路径
+        const oneLevelUp = currentURL.substring(0, currentURL.lastIndexOf('/'));
+        // 获取前两级路径
+        const twoLevelsUp = oneLevelUp.substring(0, oneLevelUp.lastIndexOf('/'));
+        const modelPath =twoLevelsUp+'/static/model';  // 你的模型路径
+        try {
+            this.cocomodel = await cocoSsd.load({
+                modelPath:modelPath+'/model.json'
+            });
+            console.log("COCO-SSD 模型已加载");
+        } catch (error) {
+            console.error("模型加载失败:", error);
+        }
+    }
+
+
+    // 开始物品检测
+    async startWItem() {
+        if (!this.cocomodel) {
+            console.log("模型尚未加载完成");
+            await this.loadItemModel()
+            
+        }
+        // if(!imageTransmission){
+        //     alert("摄像头未开启")
+        //     return
+        // }
+
+
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+       
+        const {renderer} = this.runtime;
+        this.renderer=renderer
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+        // 创建一个新的 skin 和 drawable 用于 face detection
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        console.log('创建的 faceSkinId:', this.faceSkinId);
+        
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0); // 确保没有透明度
+
+        this.isStartObject=true
+        this.detectObjects();
+    }
+
+
+    async detectObjects() {
+
+        if (!this.isStartObject || this.isProcessingFrame) return;
+
+        this.isProcessingFrame = true;
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);  
+        try {
+            const imageData = this.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: this.runtime.currentStepTime
+             });
+            const predictions = await this.cocomodel.detect(imageData);
+
+            let objectName=['',0]
+            let location
+            // ... 处理预测结果
+            predictions.forEach(prediction => {
+                const [x, y, width, height] = prediction.bbox;
+                // location=prediction.bbox;
+                
+                
+                //canvasCtx.fillText(`${prediction.class} (${(prediction.score * 100).toFixed(1)}%)`, x, y > 10 ? y - 5 : 10);
+                const chineseClass = this.classNames[prediction.class] || prediction.class;  // 如果没有找到对应的中文，使用英文
+
+                // if(chineseClass=='猫'){
+                    aiInfo.setObjectLocation({
+                        x:Math.round(x-255+width/2),
+                        y:Math.round(y-223+height/2)
+                    })
+                    aiInfo.setObjectWh([Math.round(width),Math.round(height)])
+                    this.canvasCtx.strokeStyle = "#00FF00";
+                    this.canvasCtx.lineWidth = 2;
+                    this.canvasCtx.strokeRect(x, y, width, height);
+    
+                    this.canvasCtx.font = "16px Arial";
+                    this.canvasCtx.fillStyle = "#FF0000";
+                    this.canvasCtx.fillText(`${chineseClass} (${(prediction.score * 100).toFixed(1)}%)`, x, y > 10 ? y - 5 : 10);
+                    if(prediction.score>objectName[1]){
+                        objectName[0]=chineseClass
+                    }
+                // }
+               
+                
+                // nsole.log(`检测到物体: ${chineseClass}, 置信度: ${(prediction.score * 100).toFixed(1)}%`);
+            });
+
+            aiInfo.setObject( objectName[0])
+            
+            // console.log(location)
+
+            // if(this.preObject!=objectName[0]){
+            //     fetch('http://localhost:3000/object-down', {
+            //         method: 'POST',
+            //         headers: {
+            //           'Content-Type': 'text/plain'
+            //         },
+            //         body: objectName[0],
+            //       })
+            //       .then(response => response.text())
+            //       .then(data => {
+            //         console.log('服务器响应:', data);
+            //       })
+            //       .catch(error => {
+            //         // console.error('错误:', error);
+            //       });
+            // }
+            
+            
+
+             // 更新 renderer 的 skin 内容
+             const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+             this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+             this.runtime.requestRedraw();
+
+        } catch (e) {
+            console.error(e);
+        } finally {
+            this.isProcessingFrame = false;
+            if (this.isStartObject) requestAnimationFrame(this.detectObjects.bind(this));
+        }
+
+    }
+
+    // 停止物品检测
+    stopWItem() {
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.isStartObject=false
+        cancelAnimationFrame(this.detectObjects);
+        // 更新 renderer 的 skin 内容
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+        this.runtime.requestRedraw();
+    }
+
+
+    //手势识别
+    async inithand(){
+        // 初始化手势识别模型
+        // handTrack = window.handTrack;
+        //console.log(handTrack);
+        if (typeof handTrack !== "undefined") {
+            // 加载手势识别模型
+            await handTrack.load(this.detectionParams).then(lmodel => {
+                this.model = lmodel;
+                console.log("手势识别模型加载成功");
+            }).catch(error => {
+                console.error("加载手势识别模型失败:", error);
+            });
+        } else {
+            console.error("handTrack.js 没有加载成功");
+        }
+    }
+
+
+    // 启动手势识别
+    async startWGestureRecognition() {
+        // if(!imageTransmission){
+        //     alert("摄像头未开启")
+        //     return
+        // }
+        await this.inithand()
+        this.isGestureDetectionActive = true;
+        if (this.model) {
+            this.detectGestureW();
+        }else{
+            console.log('启动失败')
+        }
+    }
+
+
+    // 停止手势识别
+    stopWGestureRecognition() {
+        isGestureDetectionActive = false;
+        cancelAnimationFrame(this.detectGestureW);
+    }
+
+
+
+
+    // 手势检测
+    detectGestureW() {
+        if(!this.isGestureDetectionActive) return;
+
+        let imageData;
+            
+        try{
+            imageData = this.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: this.runtime.currentStepTime
+            });
+        }catch(e){
+            console.log(e)
+        }
+
+        this.model.detect(imageData).then(predictions => {
+            this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            
+            // 如果有预测结果，则渲染预测
+            if (predictions && predictions.length > 0) {
+                try {
+                    let gesture = this.detectSimpleGesture1(predictions);
+                    console.log(`检测到手势: ${gesture}`);
+                    // transcriptElement.textContent = gesture;
+                    // send_gesture(gesture)
+
+
+                    if(this.preGesture!=gesture){
+                        fetch(`http://192.168.4.1:8080/gesture_recognition?num=${this.pose.indexOf(gesture).toString()}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'text/plain'
+                            },
+                            })
+                            .then(response => response.text())
+                            .then(data => {
+                            console.log('服务器响应:', data);
+                            this.preGesture=gesture
+                            })
+                            .catch(error => {
+                            console.log('错误:', error);
+                            });
+                    }
+                    
+                    
+                } catch (error) {
+                    console.error("渲染手势预测时出错:", error);
+                }
+            } else {
+                console.log("未检测到任何手势");
+                // transcriptElement.textContent = "无手势";
+            }
+
+            // 持续检测手势
+            requestAnimationFrame(this.detectGestureW.bind(this));
+        });
+    }
+
+    detectSimpleGesture1(predictions) {
+        let gesture = "无手势";
+        console.log(predictions)
+        predictions.forEach(prediction => {
+            const hand = prediction.bbox; // 获取手部框
+            if (hand[2] > 150) {
+                gesture = "手掌张开";
+            } else {
+                gesture = "拳头";
+            }
+        });
+
+        return gesture;
+    }
+
+
+
+    //颜色追踪
+    // 启动色块检测
+    startWColorBlockDetection() {
+        console.log('执行了颜色追踪')
+
+        // 设置蓝色范围的 HSV 值
+        this.lower_blue = new cv.Mat(1, 3, cv.CV_8UC1); // 1行3列矩阵
+        this.upper_blue = new cv.Mat(1, 3, cv.CV_8UC1); // 1行3列矩阵
+
+        // 直接将数据赋值到 Mat 对象
+        this.lower_blue.data.set([100, 150, 100]); // 下限 (H=100, S=150, V=100)
+        this.upper_blue.data.set([140, 255, 255]); // 上限 (H=140, S=255, V=255)
+
+        // 红色范围的 HSV 值
+        this.lower_red1 = new cv.Mat(1, 3, cv.CV_8UC1); // 1行3列矩阵
+        this.upper_red1 = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_red1.data.set([0, 150, 70]); // 红色下限 (H=0, S=150, V=50)
+        this.upper_red1.data.set([10, 255, 255]); // 红色上限 (H=10, S=255, V=255)
+
+        // 黄色范围的 HSV 值
+        this.lower_yellow = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.upper_yellow = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_yellow.data.set([20, 100, 50]); // 黄色下限 (H=25, S=150, V=50)
+        this.upper_yellow.data.set([40, 255, 255]); // 黄色上限 (H=35, S=255, V=255)
+
+        // 绿色范围的 HSV 值
+        this.lower_green = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.upper_green = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_green.data.set([35, 80, 40]); // 绿色下限 (H=50, S=150, V=50)
+        this.upper_green.data.set([85, 255, 255]); // 绿色上限 (H=70, S=255, V=255)
+
+        // 黑色范围的 HSV 值
+        this.lower_black = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.upper_black = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_black.data.set([0, 0, 0]); // 黑色下限 (H=0, S=0, V=0)
+        this.upper_black.data.set([180, 255, 50]); // 黑色上限 (H=180, S=255, V=50)
+
+        // 白色范围的 HSV 值
+        this.lower_white = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.upper_white = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_white.data.set([0, 0, 200]); // 白色下限 (H=0, S=0, V=200)
+        this.upper_white.data.set([180, 50, 255]); // 白色上限 (H=180, S=50, V=255)
+
+        //capColor = new cv.VideoCapture(videoElement);
+
+        const {renderer} = this.runtime;
+        this.renderer=renderer
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+
+        // 创建一个新的 skin 和 drawable 用于 face detection
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        console.log('创建的 faceSkinId:', this.faceSkinId);
+        
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0); // 确保没有透明度
+
+        this.isColorBlockDetectionActive = true;
+        this.processColorBlockDetectionW();
+    }
+
+    // 停止色块检测
+    stopWColorBlockDetection() {
+        this.isColorBlockDetectionActive = false;
+        this.lower_blue=null;
+        this.upper_blue=null;
+        this.capColor=null;
+        this.lower_red1=null;
+        this.upper_red1=null;
+        this.lower_yellow=null;
+        this.upper_yellow=null;
+        this.lower_green=null;
+        this.upper_green=null;
+        this.lower_black=null;
+        this.upper_black=null;
+        this.lower_white=null;
+        this.upper_white=null
+        cancelAnimationFrame(this.processColorBlockDetectionW);
+        // await new Promise(resolve => setTimeout(resolve, 1000)); 
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);  
+        // 更新 renderer 的 skin 内容
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+        this.runtime.requestRedraw();
+        console.log('停止')
+    }
+    // 处理每一帧
+    processColorBlockDetectionW() {
+        //if (!capColor) return;
+
+
+        console.log('处理帧')
+        let imageData;
+            
+        try{
+            imageData = this.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: this.runtime.currentStepTime
+            });
+        }catch(e){
+            console.log(e)
+        }
+        let src = cv.matFromImageData(imageData); 
+        let dst = new cv.Mat();      
+        let mask = new cv.Mat();   
+
+        // 获取当前帧
+        //capColor.read(src);
+
+        // 转换为 HSV 色彩空间
+        try {
+            cv.cvtColor(src, dst, cv.COLOR_RGB2HSV);  // 转换颜色空间
+        } catch (error) {
+            console.error("cvtColor 错误: ", error);
+            return;
+        }
+
+        if(aiInfo.getWhatColor()=='red'){
+            // 创建掩码
+            cv.inRange(dst, this.lower_red1, this.upper_red1, mask);
+        }else if(aiInfo.getWhatColor()=='yellow'){
+            // 创建掩码
+            cv.inRange(dst, this.lower_yellow, this.upper_yellow, mask);
+        }else if(aiInfo.getWhatColor()=='green'){
+            // 创建掩码
+            cv.inRange(dst, this.lower_green, this.upper_green, mask);
+        }else if(aiInfo.getWhatColor()=='blue'){
+            // 创建掩码
+            cv.inRange(dst, this.lower_blue, this.upper_blue, mask);
+        }else if(aiInfo.getWhatColor()=='black'){
+            // 创建掩码
+            cv.inRange(dst, this.lower_black, this.upper_black, mask);
+        }else if(aiInfo.getWhatColor()=='white'){
+            // 创建掩码
+            cv.inRange(dst, this.lower_white, this.upper_white, mask);
+        }
+        
+
+        // 对掩码进行高斯模糊，减少噪声
+        cv.GaussianBlur(mask, mask, new cv.Size(5, 5), 0);
+
+        // 查找轮廓
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+
+        
+
+        let colorNum=0
+        let location={
+            x:0,
+            y:0
+        }
+        let len=0
+
+        let maxArea = 0;
+        let maxRect = null;
+
+        // 找出面积最大的目标轮廓
+        for (let i = 0; i < contours.size(); i++) {
+            let contour = contours.get(i);
+            let area = cv.contourArea(contour);
+            if (area > 500 && area > maxArea) {
+                let rect = cv.boundingRect(contour);
+                let aspectRatio = rect.width / rect.height;
+
+                if (aspectRatio > 0.5 && aspectRatio < 2) {
+                    maxArea = area;
+                    maxRect = rect;
+                }
+            }
+        }
+
+        // 如果找到了最大轮廓，绘制它
+        if (maxRect) {
+            colorNum = 1; // 只找到一个目标
+            location.x = maxRect.x - 255 + maxRect.width / 2;
+            location.y = maxRect.y - 223 + maxRect.height / 2;
+
+            let wh = [maxRect.width, maxRect.height];
+            aiInfo.setColorWh(wh);
+            aiInfo.setHaveColor(colorNum)
+            aiInfo.setColorLocation(location)
+
+            cv.rectangle(
+                src,
+                new cv.Point(maxRect.x, maxRect.y),
+                new cv.Point(maxRect.x + maxRect.width, maxRect.y + maxRect.height),
+                [255, 0, 0, 255],
+                2
+            );
+        } else {
+            colorNum = 0;
+            aiInfo.setColorWh([0,0]);
+            aiInfo.setHaveColor(colorNum)
+            aiInfo.setColorLocation({
+                x:0,
+                y:0
+            })
+        }
+        // // 遍历所有轮廓
+        // for (let i = 0; i < contours.size(); i++) {
+        //     let contour = contours.get(i);
+        //     if (cv.contourArea(contour) > 500) { // 过滤掉小的轮廓
+        //         let rect = cv.boundingRect(contour);
+        //         let aspectRatio = rect.width / rect.height;
+
+        //         let wh=[rect.width,rect.height]
+        //         aiInfo.setColorWh(wh)
+        //         // 长宽比符合矩形
+        //         if (aspectRatio > 0.5 && aspectRatio < 2) {
+        //             colorNum++
+        //             if(cv.contourArea(contour)>len){
+        //                 len=cv.contourArea(contour)
+        //                 location.x=rect.x-255+rect.width/2
+        //                 location.y=rect.y-223+rect.height/2
+        //             }
+        //             // 绘制矩形框
+        //             cv.rectangle(src, new cv.Point(rect.x,rect.y),new cv.Point(rect.x+rect.width,rect.y+rect.height), [255, 0, 0, 255], 2); 
+        //             // console.log("目标颜色坐标: (" + rect.x + ", " + rect.y + ")( "+ rect.width +","+rect.height+")");
+        //             // send_colorRect1(rect.x,rect.x+rect.width,rect.y,rect.y+rect.height)
+        //         }
+        //     }
+        // }
+       
+
+        // console.log(src)
+        // console.log(contours)
+
+        // 渲染到 canvas 上
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+        
+        // 获取图像的 ImageData
+        let imageDataToRender = new ImageData(new Uint8ClampedArray(src.data), src.cols, src.rows);
+
+        // 在 canvas 上渲染
+        this.canvasCtx.putImageData(imageDataToRender, 0, 0);
+
+        // 渲染到 renderer
+        const {renderer} = this.runtime;
+        if (!renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+
+        // 更新 renderer 的 skin 内容
+        const updatedImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, updatedImageData, 1);
+        this.runtime.requestRedraw();
+
+        // 释放内存
+        src.delete();
+        dst.delete();
+        mask.delete();
+        contours.delete();
+        hierarchy.delete();
+
+        // 请求下一帧
+        if (this.isColorBlockDetectionActive) {
+            requestAnimationFrame(this.processColorBlockDetectionW.bind(this));
+        }
+    }
+
+
+
+
+    // 启动色块位置识别
+    startColorPlaceDetection() {
+        // if(mediaStream ==null){
+        //     alert("摄像头未开启")
+        //     return
+        // }
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+
+        // 设置蓝色范围的 HSV 值
+        this.lower_blue = new cv.Mat(1, 3, cv.CV_8UC1); // 1行3列矩阵
+        this.upper_blue = new cv.Mat(1, 3, cv.CV_8UC1); // 1行3列矩阵
+
+        // 直接将数据赋值到 Mat 对象
+        this.lower_blue.data.set([100, 150, 100]); // 下限 (H=100, S=150, V=100)
+        this.upper_blue.data.set([140, 255, 255]); // 上限 (H=140, S=255, V=255)
+
+        // 红色范围的 HSV 值
+        this.lower_red1 = new cv.Mat(1, 3, cv.CV_8UC1); // 1行3列矩阵
+        this.upper_red1 = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_red1.data.set([0, 150, 70]); // 红色下限 (H=0, S=150, V=50)
+        this.upper_red1.data.set([10, 255, 255]); // 红色上限 (H=10, S=255, V=255)
+
+        // 黄色范围的 HSV 值
+        this.lower_yellow = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.upper_yellow = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_yellow.data.set([25, 150, 50]); // 黄色下限 (H=25, S=150, V=50)
+        this.upper_yellow.data.set([35, 255, 255]); // 黄色上限 (H=35, S=255, V=255)
+
+        // 绿色范围的 HSV 值
+        this.lower_green = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.upper_green = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_green.data.set([50, 150, 50]); // 绿色下限 (H=50, S=150, V=50)
+        this.upper_green.data.set([70, 255, 255]); // 绿色上限 (H=70, S=255, V=255)
+
+        // 黑色范围的 HSV 值
+        this.lower_black = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.upper_black = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_black.data.set([0, 0, 0]); // 黑色下限 (H=0, S=0, V=0)
+        this.upper_black.data.set([180, 255, 50]); // 黑色上限 (H=180, S=255, V=50)
+
+        // 白色范围的 HSV 值
+        this.lower_white = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.upper_white = new cv.Mat(1, 3, cv.CV_8UC1);
+        this.lower_white.data.set([0, 0, 200]); // 白色下限 (H=0, S=0, V=200)
+        this.upper_white.data.set([180, 50, 255]); // 白色上限 (H=180, S=50, V=255)
+
+        //capColor = new cv.VideoCapture(videoElement);
+
+        const {renderer} = this.runtime;
+        this.renderer=renderer
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+
+        // 创建一个新的 skin 和 drawable 用于 face detection
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        console.log('创建的 faceSkinId:', this.faceSkinId);
+        
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0); // 确保没有透明度
+
+        this.isColorPlaceDetectionActive = true;
+
+
+        this.processColorPlaceDetection();
+    }
+
+    // 停止颜色识别
+    stopColorPlaceDetection() {
+
+        this.lower_blue=null;
+        this.upper_blue=null;
+        this.capColor=null;
+        this.lower_red1=null;
+        this.upper_red1=null;
+        this.lower_yellow=null;
+        this.upper_yellow=null;
+        this.lower_green=null;
+        this.upper_green=null;
+        this.lower_black=null;
+        this.upper_black=null;
+        this.lower_white=null;
+        this.upper_white=null
+
+        this.isColorPlaceDetectionActive = false;
+        cancelAnimationFrame(this.processColorPlaceDetection);
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);  
+        // 更新 renderer 的 skin 内容
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+        this.runtime.requestRedraw();
+    }
+
+   
+
+    // 处理视频帧，进行色块位置识别
+    processColorPlaceDetection() {
+        if (!this.isColorPlaceDetectionActive) return;
+        let imageData;
+    
+        try {
+            imageData = this.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: this.runtime.currentStepTime
+            });
+        } catch (e) {
+            console.log(e);
+            return;
+        }
+    
+        let src = cv.matFromImageData(imageData); 
+        let dst = new cv.Mat();      
+        let mask = new cv.Mat();   
+    
+        try {
+            cv.cvtColor(src, dst, cv.COLOR_RGB2HSV);
+        } catch (error) {
+            console.error("cvtColor 错误: ", error);
+            return;
+        }
+    
+        const color = aiInfo.getWhatColor();
+        if (color === 'red') {
+            cv.inRange(dst, this.lower_red1, this.upper_red1, mask);
+        } else if (color === 'yellow') {
+            cv.inRange(dst, this.lower_yellow, this.upper_yellow, mask);
+        } else if (color === 'green') {
+            cv.inRange(dst, this.lower_green, this.upper_green, mask);
+        } else if (color === 'blue') {
+            cv.inRange(dst, this.lower_blue, this.upper_blue, mask);
+        } else if (color === 'black') {
+            cv.inRange(dst, this.lower_black, this.upper_black, mask);
+        } else if (color === 'white') {
+            cv.inRange(dst, this.lower_white, this.upper_white, mask);
+        }
+    
+        cv.GaussianBlur(mask, mask, new cv.Size(5, 5), 0);
+    
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    
+        let colorNum = 0;
+        let location = { x: 0, y: 0 };
+        let maxArea = 0;
+        let maxRect = null;
+    
+        for (let i = 0; i < contours.size(); i++) {
+            let contour = contours.get(i);
+            let area = cv.contourArea(contour);
+            if (area > 500 && area > maxArea) {
+                let rect = cv.boundingRect(contour);
+                let aspectRatio = rect.width / rect.height;
+                if (aspectRatio > 0.5 && aspectRatio < 2) {
+                    maxArea = area;
+                    maxRect = rect;
+                }
+            }
+        }
+    
+        const cx = this.canvas.width / 2;
+        const cy = this.canvas.height / 2;
+        const r = 50;
+        
+        if (maxRect) {
+            colorNum = 1;
+            let centerX = maxRect.x + maxRect.width / 2;
+            let centerY = maxRect.y + maxRect.height / 2;
+    
+            // 设置原点在中心
+            location.x = centerX ;
+            location.y = centerY ;
+    
+            // aiInfo.setColorWh([maxRect.width, maxRect.height]);
+    
+            // 区域判断逻辑（基于实际像素）
+            const dx = centerX - cx;
+            const dy = centerY - cy;
+            
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI; // 转为角度制
+            
+            let region = 'none';
+            
+            // 在中间正方形范围内
+            if (Math.abs(dx) <= 50 && Math.abs(dy) <= 50) {
+                region = 'center';
+            } else {
+                if (angle >= -45 && angle <= 45) {
+                    region = 'right';
+                } else if (angle > 45 && angle < 135) {
+                    region = 'bottom';
+                } else if (angle >= 135 || angle <= -135) {
+                    region = 'left';
+                } else if (angle > -135 && angle < -45) {
+                    region = 'top';
+                }
+            }
+            aiInfo.setRegion(region);
+            // console.log(region)
+    
+            // 绘制边框
+            cv.rectangle(
+                src,
+                new cv.Point(maxRect.x, maxRect.y),
+                new cv.Point(maxRect.x + maxRect.width, maxRect.y + maxRect.height),
+                [255, 0, 0, 255],
+                2
+            );
+        } else {
+            colorNum = 0;
+            // aiInfo.setRegion('none');
+        }
+    
+        // aiInfo.setHaveColor(colorNum);
+        // aiInfo.setColorLocation(location);
+    
+        // Canvas 设置与渲染
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+    
+        let imageDataToRender = new ImageData(new Uint8ClampedArray(src.data), src.cols, src.rows);
+        this.canvasCtx.putImageData(imageDataToRender, 0, 0);
+    
+        // 绘制完整的区域分割线
+        const ctx = this.canvasCtx;
+        ctx.strokeStyle = 'blue';
+        ctx.lineWidth = 2;
+    
+        
+    
+        // 画中间正方形
+        ctx.strokeRect(cx - r, cy - r, 100, 100);
+    
+        // 从四角连线到中间
+        ctx.beginPath();
+        ctx.moveTo(0, 0);         ctx.lineTo(cx - r, cy - r);
+        ctx.moveTo(this.canvas.width, 0); ctx.lineTo(cx + r, cy - r);
+        ctx.moveTo(0, this.canvas.height); ctx.lineTo(cx - r, cy + r);
+        ctx.moveTo(this.canvas.width, this.canvas.height); ctx.lineTo(cx + r, cy + r);
+        ctx.stroke();
+    
+        // 渲染到 renderer
+        const updatedImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        if (this.renderer) {
+            this.renderer.updateBitmapSkin(this.faceSkinId, updatedImageData, 1);
+            this.runtime.requestRedraw();
+        }
+    
+        // 清理
+        src.delete();
+        dst.delete();
+        mask.delete();
+        contours.delete();
+        hierarchy.delete();
+    
+        if (this.isColorPlaceDetectionActive) {
+            requestAnimationFrame(this.processColorPlaceDetection.bind(this));
+        }
+    }
+
+
+
+
+    // 启动颜色识别
+    startColorDetection() {
+        // if(mediaStream ==null){
+        //     alert("摄像头未开启")
+        //     return
+        // }
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+
+        const {renderer} = this.runtime;
+        this.renderer=renderer
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+
+        // 创建一个新的 skin 和 drawable 用于 face detection
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        console.log('创建的 faceSkinId:', this.faceSkinId);
+        
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0); // 确保没有透明度
+
+        this.isColorDetectionActive = true;
+
+
+        this.processColorDetection();
+    }
+
+    // 停止颜色识别
+    stopColorDetection() {
+        this.isColorDetectionActive = false;
+        cancelAnimationFrame(this.processColorDetection);
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);  
+        // 更新 renderer 的 skin 内容
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+        this.runtime.requestRedraw();
+    }
+
+    
+
+    // 处理视频帧，进行颜色识别
+    processColorDetection() {
+        if (!this.isColorDetectionActive) return;
+        // console.log('-----------')
+        // let canvasOutput = document.getElementById('canvasOutput');
+        // let ctx = canvasOutput.getContext('2d');
+
+        let imageData;
+            
+        try{
+            imageData = this.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: this.runtime.currentStepTime
+            });
+        }catch(e){
+            console.log(e)
+        }
+
+        // ctx.drawImage(videoElement, 0, 0, canvasOutput.width, canvasOutput.height);
+        if (imageData) {
+            this.canvasCtx.putImageData(imageData, 0, 0); // 直接绘制到 canvas 上
+        }
+
+        let frame = cv.imread(this.canvas);  // 从canvas读取图像
+
+        
+        // cv.cvtColor(frame, frame, cv.COLOR_RGBA2RGB); // 转换为RGB格式以确保兼容性
+
+        // let W = this.canvas.width;
+        // let H = this.canvas.height;
+        // let S = 100; // 中心区域大小
+
+        // let x0 = Math.floor(W / 2 - S / 2);
+        // let y0 = Math.floor(H / 2 - S / 2);
+        // let x1 = x0 + S;
+        // let y1 = y0 + S;
+
+        // this.colorGrid = [];
+
+        // const drawPolygon = (ctx, points, fillStyle) => {
+        //     ctx.beginPath();
+        //     ctx.moveTo(points[0][0], points[0][1]);
+        //     for (let i = 1; i < points.length; i++) {
+        //         ctx.lineTo(points[i][0], points[i][1]);
+        //     }
+        //     ctx.closePath();
+        //     ctx.fillStyle = fillStyle;
+        //     ctx.fill();
+        //     ctx.strokeStyle = '#000';
+        //     ctx.lineWidth = 2;
+        //     ctx.stroke();
+        // };
+
+        // // 中心区域颜色
+        // let centerROI = frame.roi(new cv.Rect(x0, y0, S, S));
+        // let centerColor = this.getAverageColor(centerROI);
+        // let centerHex = this.rgbToHex(...centerColor);
+        // this.colorGrid.push(centerHex);
+        // this.canvasCtx.fillStyle = centerHex;
+        // this.canvasCtx.fillRect(x0, y0, S, S);
+        // this.canvasCtx.strokeStyle = '#000';
+        // this.canvasCtx.lineWidth = 2;
+        // this.canvasCtx.strokeRect(x0, y0, S, S);
+        // centerROI.delete();
+
+        // // 上下左右区域定义
+        // const regions = [
+        //     {
+        //         name: '上',
+        //         points: [[0, 0], [W, 0], [x1, y0], [x0, y0]]
+        //     },
+        //     {
+        //         name: '下',
+        //         points: [[x0, y1], [x1, y1], [W, H], [0, H]]
+        //     },
+        //     {
+        //         name: '左',
+        //         points: [[0, 0], [x0, y0], [x0, y1], [0, H]]
+        //     },
+        //     {
+        //         name: '右',
+        //         points: [[x1, y0], [W, 0], [W, H], [x1, y1]]
+        //     }
+        // ];
+
+        // for (let region of regions) {
+        //     let mask = new cv.Mat.zeros(H, W, cv.CV_8UC1);
+        //     let flatPoints = region.points.flat();
+        //     let matPts = cv.matFromArray(4, 1, cv.CV_32SC2, flatPoints);
+        //     cv.fillConvexPoly(mask, matPts, new cv.Scalar(255));
+
+        //     let avgColor = this.getAverageColorByMask(frame, mask);
+        //     let hex = this.rgbToHex(...avgColor);
+        //     this.colorGrid.push(hex);
+
+        //     drawPolygon(this.canvasCtx, region.points, hex);
+
+        //     matPts.delete(); mask.delete();
+        // }
+
+        //-----------------中心点
+        // 计算中心区域坐标
+        let centerX = Math.floor(this.canvas.width / 2);
+        let centerY = Math.floor(this.canvas.height / 2);
+        let regionSize = 10;
+        let x = centerX - regionSize / 2;
+        let y = centerY - regionSize / 2;
+
+        // 提取中心区域
+        let roi = frame.roi(new cv.Rect(x, y, regionSize, regionSize));
+
+        // 计算平均颜色
+        let avgColor = this.getAverageColor(roi);
+        let colorHex = this.rgbToHex(avgColor[0], avgColor[1], avgColor[2]);
+
+        aiInfo.setColorRgb(avgColor)
+        // 绘制中心区域边框
+        this.canvasCtx.strokeStyle = '#000';
+        this.canvasCtx.lineWidth = 2;
+        this.canvasCtx.strokeRect(x, y, regionSize, regionSize);
+
+        // 填充颜色
+        this.canvasCtx.fillStyle = colorHex === '#ffffff' ? '#CCCCCC' : colorHex;
+        this.canvasCtx.fillRect(x, y, regionSize, regionSize);
+
+        // 保存到 colorGrid（可以只保存一格）
+        this.colorGrid = [[colorHex]];
+
+        roi.delete(); // 清理内存
+
+        //------------------6*8区域
+        // let gridSize = 8;
+        // let cellWidth = this.canvas.width / 8;
+        // let cellHeight = this.canvas.height / 6;
+
+        // for (let row = 0; row < 6; row++) {
+        //     for (let col = 0; col < 8; col++) {
+        //         let x = col * cellWidth;
+        //         let y = row * cellHeight;
+        //         let cell = frame.roi(new cv.Rect(x, y, cellWidth, cellHeight)); // 提取每个宫格区域
+
+        //         // 计算该格子的主要颜色
+        //         let avgColor = this.getAverageColor(cell);
+        //         let colorHex = this.rgbToHex(avgColor[0], avgColor[1], avgColor[2]);
+
+        //         // 存入颜色矩阵
+        //         this.colorGrid[row][col] = colorHex;
+
+        //         /*边框绘制形式*/
+        //         //设置格子边框颜色
+        //         // ctx.strokeStyle = colorHex === '#ffffff' ? '#CCCCCC' : colorHex;  // 未知颜色使用灰色边框
+        //         // ctx.lineWidth = 2;
+        //         // ctx.strokeRect(x, y, cellWidth, cellHeight);
+
+        //         /*填充绘制形式*/
+        //         // 绘制矩形框
+        //         this.canvasCtx.strokeStyle = '#000';
+        //         this.canvasCtx.lineWidth = 2;
+        //         this.canvasCtx.strokeRect(x, y, cellWidth, cellHeight);
+
+        //         // 填充颜色框
+        //         if (colorHex === '#ffffff') {
+        //             this.canvasCtx.fillStyle = '#CCCCCC';  // 未知颜色使用灰色
+        //         } else {
+        //             this.canvasCtx.fillStyle = colorHex;  // 绘制识别的颜色
+        //         }
+        //         this.canvasCtx.fillRect(x, y, cellWidth, cellHeight);
+
+        //         cell.delete();  // 释放内存
+        //     }
+        // }
+
+         // 渲染到 renderer
+         const {renderer} = this.runtime;
+         if (!renderer) {
+             console.error('Renderer 未初始化');
+             return;
+         }
+ 
+         // 更新 renderer 的 skin 内容
+         const updatedImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+         this.renderer.updateBitmapSkin(this.faceSkinId, updatedImageData, 1);
+         this.runtime.requestRedraw();
+
+        frame.delete();  // 释放内存
+        if (this.isColorDetectionActive) {
+            requestAnimationFrame(this.processColorDetection.bind(this));
+        }
+        // requestAnimationFrame(processColorDetection);  // 循环处理每一帧
+    }
+
+
+    getColorAt(x, y) {
+        let cellWidth = this.canvas.width / 8;
+        let cellHeight = this.canvas.height / 6;
+    
+        let col = Math.floor(x / cellWidth);
+        let row = Math.floor(y / cellHeight);
+    
+        if (row >= 0 && row < 6 && col >= 0 && col < 8) {
+            return this.colorGrid[row][col];
+        } else {
+            return null; // 坐标超出范围
+        }
+    }
+
+    // 获取图像的平均颜色
+    getAverageColor(image) {
+        let sum = [0, 0, 0];
+        let count = 0;
+        for (let i = 0; i < image.rows; i++) {
+            for (let j = 0; j < image.cols; j++) {
+                let pixel = image.ucharPtr(i, j);
+                sum[0] += pixel[0];  // 蓝色
+                sum[1] += pixel[1];  // 绿色
+                sum[2] += pixel[2];  // 红色
+                count++;
+            }
+        }
+        return [Math.round(sum[0] / count), Math.round(sum[1] / count), Math.round(sum[2] / count)];
+
+        // let max = [0, 0, 0];
+        // for (let i = 0; i < image.rows; i++) {
+        //     for (let j = 0; j < image.cols; j++) {
+        //         let pixel = image.ucharPtr(i, j);
+        //         max[0] = Math.max(max[0], pixel[0]);  // B
+        //         max[1] = Math.max(max[1], pixel[1]);  // G
+        //         max[2] = Math.max(max[2], pixel[2]);  // R
+        //     }
+        // }
+        // return max;
+    }
+
+    getAverageColorByMask(image, mask) {
+        let sum = [0, 0, 0];
+        let count = 0;
+    
+        for (let i = 0; i < image.rows; i++) {
+            for (let j = 0; j < image.cols; j++) {
+                if (mask.ucharAt(i, j) === 255) {
+                    let pixel = image.ucharPtr(i, j);
+                    sum[0] += pixel[0]; // B
+                    sum[1] += pixel[1]; // G
+                    sum[2] += pixel[2]; // R
+                    count++;
+                }
+            }
+        }
+    
+        if (count === 0) return [0, 0, 0];
+        return [sum[0] / count, sum[1] / count, sum[2] / count];
+
+
+        // let max = [0, 0, 0];
+
+        // for (let i = 0; i < image.rows; i++) {
+        //     for (let j = 0; j < image.cols; j++) {
+        //         if (mask.ucharAt(i, j) === 255) {
+        //             let pixel = image.ucharPtr(i, j);
+        //             max[0] = Math.max(max[0], pixel[0]); // B
+        //             max[1] = Math.max(max[1], pixel[1]); // G
+        //             max[2] = Math.max(max[2], pixel[2]); // R
+        //         }
+        //     }
+        // }
+    
+        // return max;
+    }
+
+    // RGB 转 HEX
+    rgbToHex(r, g, b) {
+        return '#' + (1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1).toUpperCase();
+    }
+
+    
+    // async startTrafficpre(){
+    //     const currentURL = window.location.href;
+
+    //     // 获取前一级路径
+    //     const oneLevelUp = currentURL.substring(0, currentURL.lastIndexOf('/'));
+    //     // 获取前两级路径
+    //     const twoLevelsUp = oneLevelUp.substring(0, oneLevelUp.lastIndexOf('/'));
+    //     const modelPath =twoLevelsUp+'/static/model/traffic_model2/';  // 你的模型路径
+
+    //     // await tflite.setWasmPath("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@latest/dist/");
+    //     // this.modelTraffic = await tflite.loadTFLiteModel(modelPath+"best_float32.tflite");
+
+    //     traficModel = await tfjs.loadLayersModel(modelPath+'model.json');
+    //     console.log('Model loaded');
+    //     // await init(modelPath)
+    //     this.timerTraffic=setInterval(() => this.detectTraffic(), 100);  // 每100ms进行一次推理
+       
+    // }
+
+    // async detectTraffic(){
+    //     // const inputTensor = await this.captureFrame(this.provider.video);
+    //     // const outputTensor = this.modelTraffic.predict(inputTensor);
+    //     // const outputData = await outputTensor.data();
+    //     // console.log(outputData);  // 打印结果
+
+
+
+    //      // 1. 截取视频帧
+    //     const webcamTensor = tfjs.browser.fromPixels(this.provider.video)
+    //     .resizeNearestNeighbor([128, 128])  // 修改为模型输入尺寸
+    //     .toFloat()
+    //     .div(255.0)                         // 如果模型要求归一化
+    //     .expandDims();                     // 扩展为 batch 维度
+
+    //     // 2. 预测
+    //     const predictions = await traficModel.predict(webcamTensor);
+    //     const predictionArray = await predictions.data();
+
+
+    //     // 3. 显示结果（此处仅显示概率最大类）
+    //     const maxIndex = predictionArray.indexOf(Math.max(...predictionArray));
+    //     // console.log(predictionArray)
+    //     // console.log(maxIndex)
+    //     aiInfo.setTraffic(maxIndex)
+        
+    // }
+
+    async startTrafficpre() {
+
+
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+        this.canvasCtx = this.canvas.getContext('2d');
+
+        const { renderer } = this.runtime;
+        this.renderer = renderer;
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0);
+
+
+
+        const currentURL = window.location.href;
+        const oneLevelUp = currentURL.substring(0, currentURL.lastIndexOf('/'));
+        const twoLevelsUp = oneLevelUp.substring(0, oneLevelUp.lastIndexOf('/'));
+        const modelPath = twoLevelsUp + '/static/model/tfjs_model4/';
+
+        try {
+            this.traficModel = await tfjs.loadGraphModel(modelPath + 'model.json');
+            console.log('Model loaded');
+            this.timerTraffic = setInterval(() => this.detectTraffic(), 100);
+        } catch (error) {
+            console.error('Error loading model:', error);
+        }
+    }
+
+
+
+    async detectTraffic() {
+        if (!this.traficModel || !this.provider) return;
+
+
+         let imageData;
+            
+        try{
+            imageData = this.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: this.runtime.currentStepTime
+            });
+        }catch(e){
+            console.log(e)
+        }
+        if (!imageData) {
+            console.warn("No image data available.");
+            return;
+        }
+
+
+
+        
+        try {
+            
+            //     // 1. 截取并处理图像
+            //     const webcamTensor = tfjs.browser.fromPixels(imageData)
+            //         .resizeNearestNeighbor([128, 128])  // 模型输入大小
+            //         .toFloat()
+            //         .div(255.0)
+            //         .expandDims()  // [1, 128, 128, 3]
+            //         .transpose([0, 3, 1, 2]);  // 变成 [1, 3, 128, 128]
+
+            //     // 3. 推理
+            //     const output = this.traficModel.execute({ 'images:0': webcamTensor }); // [1, 10, 336]
+
+            //    const raw = output.squeeze();                  // [10, 336]
+
+            //     // 拆分为 bbox 和分类得分
+            //     const boxes = raw.slice([0, 0], [10, 4]);      // [10, 4]
+            //     const scores = raw.slice([0, 4], [10, 332]);   // [10, 332]
+
+            //     // 取每个检测结果的最大类别分数和索引
+            //     const confidences = scores.max(-1);            // [10]
+            //     const classes = scores.argMax(-1);             // [10]
+
+            //     // 使用 await 打印结果
+            //     const confArr = await confidences.array();
+
+            //     console.log(confArr);
+
+            //     let sliceConf=confArr.slice(4)
+            //     const max = Math.max(...sliceConf);
+            //     // 找出最大值在原数组中的索引
+            //     const slicedIndex = sliceConf.indexOf(max);   // 在 sliced 中的索引
+            //     const originalIndex = slicedIndex + 4;     // 加上偏移量，得到在原数组中的索引
+
+            //     aiInfo.setTraffic(originalIndex);
+
+
+            const [origWidth, origHeight] = Video.DIMENSIONS; // 原始图像尺寸
+            const modelInputSize = 416; // 模型输入尺寸
+
+            const confArr = tfjs.tidy(() => {
+            const webcamTensor = tfjs.browser.fromPixels(imageData)
+                .resizeNearestNeighbor([416, 416])
+                .toFloat()
+                .div(255.0)
+                .expandDims()
+                .transpose([0, 3, 1, 2]);
+
+            const output = this.traficModel.execute({ 'images:0': webcamTensor });
+
+            const raw = output.squeeze();
+            const scores = raw.slice([0, 4], [10, 3545]);
+
+            const boxes = raw.slice([0, 0], [4, 3549]).max(-1).arraySync(); // [4, 3549]
+
+            return scores.max(-1).arraySync();  // 同步方式
+        });
+        // console.log(confArr)
+
+        const sliceConf = confArr.slice(4);
+        const max = Math.max(...sliceConf);
+
+
+        if (max > 0.3) {
+            const slicedIndex = sliceConf.indexOf(max);
+            const originalIndex = slicedIndex + 4;
+            aiInfo.setTraffic(originalIndex);
+
+           
+        } else {
+            aiInfo.setTraffic(-1);
+        }
+
+        // // 把当前 canvas 更新到舞台
+        // const updatedImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        // this.renderer.updateBitmapSkin(this.faceSkinId, updatedImageData, 1);
+        // this.runtime.requestRedraw();
+                
+        } catch (error) {
+            console.error('Traffic detection failed:', error);
+        }
+    }
+
+    stopTraffic(){
+        clearInterval(this.timerTraffic)
+    }
+    async captureFrame(video) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = '192';
+        canvas.height = '192';
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const imgTensor = tf.browser.fromPixels(imgData);
+        // const inputTensor = imgTensor.expandDims(0).toFloat();
+        const inputTensor=tf.expandDims(imgTensor);
+        return inputTensor;
+    }
+
+
+
+     // Load the image model and setup the webcam
+     async init(URL) {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
+
+        // load the model and metadata
+        // Refer to tmImage.loadFromFiles() in the API to support files from a file picker
+        // or files from your local hard drive
+        // Note: the pose library adds "tmImage" object to your window (window.tmImage)
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+
+        // Convenience function to setup a webcam
+        const flip = true; // whether to flip the webcam
+        webcam = new tmImage.Webcam(200, 200, flip); // width, height, flip
+        await webcam.setup(); // request access to the webcam
+        await webcam.play();
+        window.requestAnimationFrame(loop);
+
+        // append elements to the DOM
+        // document.getElementById("webcam-container").appendChild(webcam.canvas);
+        // labelContainer = document.getElementById("label-container");
+        // for (let i = 0; i < maxPredictions; i++) { // and class labels
+        //     labelContainer.appendChild(document.createElement("div"));
+        // }
+    }
+
+    async loop() {
+        webcam.update(); // update the webcam frame
+        await predict();
+        window.requestAnimationFrame(loop);
+    }
+
+    // run the webcam image through the image model
+    async predict() {
+        // predict can take in an image, video or canvas html element
+        const prediction = await model.predict(webcam.canvas);
+        for (let i = 0; i < maxPredictions; i++) {
+            const classPrediction =
+                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
+            // labelContainer.childNodes[i].innerHTML = classPrediction;
+            console.log(classPrediction)
+        }
+    }
+
+    async aprilTag(){
+
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+
+        this.isAprilTagActive=true
+
+        const {renderer} = this.runtime;
+        this.renderer=renderer
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+
+        // 创建一个新的 skin 和 drawable 用于 face detection
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        console.log('创建的 faceSkinId:', this.faceSkinId);
+        
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0); // 确保没有透明度
+
+        const currentURL = window.location.href;
+
+        // 获取前一级路径
+        const oneLevelUp = currentURL.substring(0, currentURL.lastIndexOf('/'));
+        // 获取前两级路径
+        const twoLevelsUp = oneLevelUp.substring(0, oneLevelUp.lastIndexOf('/'));
+        const modelPath =twoLevelsUp+'/static/model';  // 你的模型路径
+        // WebWorkers use `postMessage` and therefore work with Comlink.
+        const Apriltag = Comlink.wrap(new Worker(modelPath+"/apriltag.js"));
+
+        // must call this to init apriltag detector; argument is a callback for when the detector is ready
+        window.apriltag = await new Apriltag(Comlink.proxy(() => {
+
+            // set camera info; we must define these according to the device and image resolution for pose computation
+            //window.apriltag.set_camera_info(double fx, double fy, double cx, double cy)
+
+            window.apriltag.set_tag_size(5, .5);
+
+            // start processing frames
+            requestAnimationFrame(this.process_frame);
+        }));
+    }
+
+
+    getAprilDistance(x1,y1,x2,y2){
+        return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    }
+
+    mirrorImageData(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const mirrored = new Uint8ClampedArray(data.length);
+    
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const srcIndex = (y * width + x) * 4;
+                const dstIndex = (y * width + (width - x - 1)) * 4;
+    
+                // Copy RGBA values
+                mirrored[dstIndex] = data[srcIndex];
+                mirrored[dstIndex + 1] = data[srcIndex + 1];
+                mirrored[dstIndex + 2] = data[srcIndex + 2];
+                mirrored[dstIndex + 3] = data[srcIndex + 3];
+            }
+        }
+    
+        return new ImageData(mirrored, width, height);
+    }
+    async process_frame() {
+        if(!THIS.isAprilTagActive) return
+        console.log('处理帧')
+        // canvas.width = video.videoWidth;
+        // canvas.height = video.videoHeight;
+        // let ctx = canvas.getContext("2d");
+        THIS.canvasCtx.clearRect(0, 0, THIS.canvas.width, THIS.canvas.height); 
+        let imageData;
+
+        try{
+            imageData = THIS.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                cacheTimeout: THIS.runtime.currentStepTime
+            });
+        }catch(e){
+            console.log(e)
+        }
+
+         // 始终复制原始 imageData，无论是否镜像
+        const copied = new Uint8ClampedArray(imageData.data); // 拷贝 pixel 数据
+        imageData = new ImageData(copied, imageData.width, imageData.height);
+
+        if (THIS.mirror) {
+            imageData = THIS.mirrorImageData(imageData);
+        }
+        // try {
+        //   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        //   imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+        // } catch (err) {
+        //   console.log("Failed to get video frame. Video not started ?");
+        //   setTimeout(process_frame, 500); // try again in 0.5 s
+        //   return;
+        // }
+        let imageDataPixels = imageData.data;
+        let grayscalePixels = new Uint8Array(THIS.canvasCtx.canvas.width * THIS.canvasCtx.canvas.height); // this is the grayscale image we will pass to the detector
+      
+        for (var i = 0, j = 0; i < imageDataPixels.length; i += 4, j++) {
+          let grayscale = Math.round((imageDataPixels[i] + imageDataPixels[i + 1] + imageDataPixels[i + 2]) / 3);
+          grayscalePixels[j] = grayscale; // single grayscale value
+          imageDataPixels[i] = grayscale;
+          imageDataPixels[i + 1] = grayscale;
+          imageDataPixels[i + 2] = grayscale;
+        }
+
+        // THIS.canvasCtx.putImageData(imageData, 0, 0);
+
+
+        if(THIS.detections.length==0){
+            aiInfo.setAprilInfo(-1)
+            aiInfo.setAprilLocation(null)
+            aiInfo.setAprilWh(null)
+        }
+        // draw previous detection
+        // THIS.detections.forEach(det => {
+        //     // console.log(det)
+
+        //     let distance=THIS.getAprilDistance(det.corners[0].x,det.corners[0].y,det.corners[1].x,det.corners[1].y)
+        //     aiInfo.setAprilInfo(det.id)
+        //     let xCenter=det.center.x-255
+        //     let yCenter=-1*(det.center.y-223)
+        //     aiInfo.setAprilLocation({
+        //         x:Math.round(xCenter),
+        //         y:Math.round(yCenter)
+        //     })
+        //     aiInfo.setAprilWh(Math.round(distance))
+
+        //   // draw tag borders
+        //   THIS.canvasCtx.beginPath();
+        //   THIS.canvasCtx.lineWidth = "5";
+        //   THIS.canvasCtx.strokeStyle = "red";
+        //   THIS.canvasCtx.moveTo(det.corners[0].x, det.corners[0].y);
+        //   THIS.canvasCtx.lineTo(det.corners[1].x, det.corners[1].y);
+        //   THIS.canvasCtx.lineTo(det.corners[2].x, det.corners[2].y);
+        //   THIS.canvasCtx.lineTo(det.corners[3].x, det.corners[3].y);
+        //   THIS.canvasCtx.lineTo(det.corners[0].x, det.corners[0].y);
+        //   THIS.canvasCtx.font = "bold 20px Arial";
+        //     var txt = ""+det.id;
+        //     THIS.canvasCtx.fillStyle = "red";
+        //     THIS.canvasCtx.textAlign = "center";
+        //     THIS.canvasCtx.fillText(txt, det.center.x, det.center.y+5);
+        //     THIS.canvasCtx.stroke();
+            
+        // });
+
+        let biggestDet = null;
+        let maxEdgeLength = 0;
+        THIS.detections.forEach(det => {
+            const p1 = det.corners[0];
+            const p2 = det.corners[1];
+            const edgeLength = THIS.getAprilDistance(p1.x, p1.y, p2.x, p2.y);
+        
+            if (edgeLength > maxEdgeLength) {
+                maxEdgeLength = edgeLength;
+                biggestDet = det;
+            }
+        });
+        
+        if (biggestDet) {
+            let centerX
+            let centerY
+            let Corners
+
+            const det = biggestDet;
+        
+            aiInfo.setAprilInfo(det.id);
+
+            if(THIS.mirror){
+                centerX = THIS.canvas.width - det.center.x;
+                centerY=det.center.y;
+                Corners = det.corners.map(p => ({
+                    x: THIS.canvas.width - p.x,
+                    y: p.y
+                }));
+            }else{
+                centerX=det.center.x;
+                centerY=det.center.y;
+                Corners = det.corners.map(p => ({
+                    x: p.x,
+                    y: p.y
+                }));
+            }
+        
+            const xCenter = centerX - 255;
+            const yCenter = -1 * (centerY - 223);
+            const distance = THIS.getAprilDistance(det.corners[0].x, det.corners[0].y, det.corners[1].x, det.corners[1].y);
+        
+            aiInfo.setAprilLocation({
+                x: Math.round(xCenter),
+                y: Math.round(yCenter)
+            });
+            aiInfo.setAprilWh(Math.round(distance));
+
+            THIS.canvasCtx.beginPath();
+            THIS.canvasCtx.lineWidth = "5";
+            THIS.canvasCtx.strokeStyle = "red";
+            THIS.canvasCtx.moveTo(Corners[0].x, Corners[0].y);
+            THIS.canvasCtx.lineTo(Corners[1].x, Corners[1].y);
+            THIS.canvasCtx.lineTo(Corners[2].x, Corners[2].y);
+            THIS.canvasCtx.lineTo(Corners[3].x, Corners[3].y);
+            THIS.canvasCtx.lineTo(Corners[0].x, Corners[0].y);
+        
+            THIS.canvasCtx.font = "bold 20px Arial";
+            THIS.canvasCtx.fillStyle = "red";
+            THIS.canvasCtx.textAlign = "center";
+            THIS.canvasCtx.fillText(`${det.id}`,centerX, det.center.y + 5);
+            THIS.canvasCtx.stroke();
+            
+
+            // 绘制框线和 ID
+            // THIS.canvasCtx.beginPath();
+            // THIS.canvasCtx.lineWidth = "5";
+            // THIS.canvasCtx.strokeStyle = "red";
+            // THIS.canvasCtx.moveTo(det.corners[0].x, det.corners[0].y);
+            // THIS.canvasCtx.lineTo(det.corners[1].x, det.corners[1].y);
+            // THIS.canvasCtx.lineTo(det.corners[2].x, det.corners[2].y);
+            // THIS.canvasCtx.lineTo(det.corners[3].x, det.corners[3].y);
+            // THIS.canvasCtx.lineTo(det.corners[0].x, det.corners[0].y);
+
+            // THIS.canvasCtx.font = "bold 20px Arial";
+            // THIS.canvasCtx.fillStyle = "red";
+            // THIS.canvasCtx.textAlign = "center";
+            // THIS.canvasCtx.fillText(`${det.id}`, det.center.x, det.center.y + 5);
+            // THIS.canvasCtx.stroke();
+            
+        }
+      
+        // detect aprilTag in the grayscale image given by grayscalePixels
+        THIS.detections = await apriltag.detect(grayscalePixels, THIS.canvasCtx.canvas.width, THIS.canvasCtx.canvas.height);
+      
+        if (THIS.imgSaveRequested && THIS.detections.length > 0) {
+            let savep = Base64.bytesToBase64(THIS.canvasCtx.getImageData(0, 0, THIS.canvasCtx.canvas.width, THIS.canvasCtx.canvas.height).data);
+            var det = JSON.stringify({
+              det_data: THIS.detections[0],
+              img_data: LZString.compressToUTF16(savep),
+              img_width:  THIS.canvasCtx.canvas.width,
+              img_height: THIS.canvasCtx.canvas.height
+            });
+      
+            //console.log("Saving detection data.");
+            // localStorage.setItem("detectData", det);
+            // buttonToggle();
+            // loadImg('saved_det');
+        }
+
+         // 渲染到 renderer
+         const {renderer} = THIS.runtime;
+         if (!renderer) {
+             console.error('Renderer 未初始化');
+             return;
+         }
+
+         // 更新 renderer 的 skin 内容
+         const updatedImageData = THIS.canvasCtx.getImageData(0, 0, THIS.canvas.width, THIS.canvas.height);
+         THIS.renderer.updateBitmapSkin(THIS.faceSkinId, updatedImageData, 1);
+         THIS.runtime.requestRedraw();
+      
+        requestAnimationFrame(THIS.process_frame.bind(THIS));
+    }
+
+    stopAprilTag(){
+        this.isAprilTagActive=false
+        cancelAnimationFrame(this.process_frame);
+
+        this.detections=[]
+        this.imgSaveRequested=0;
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);  
+        // 更新 renderer 的 skin 内容
+        const ImageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, ImageData, 1);
+            // 隐藏 drawable
+        this.renderer.updateDrawableVisible(this.faceDrawableId, false);
+        this.runtime.requestRedraw();
+        console.log('停止了')
+    }
+
+    stopVideo(){
+        this.canvas.width = Video.DIMENSIONS[0];
+        this.canvas.height = Video.DIMENSIONS[1];
+        const {renderer} = this.runtime;
+        this.renderer=renderer
+        if (!this.renderer) {
+            console.error('Renderer 未初始化');
+            return;
+        }
+
+        // 创建一个新的 skin 和 drawable 用于 face detection
+        this.faceSkinId = this.renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
+        this.faceDrawableId = this.renderer.createDrawable(StageLayering.VIDEO_LAYER);
+
+        console.log('创建的 faceSkinId:', this.faceSkinId);
+        
+        if (this.renderer.markSkinAsPrivate) {
+            this.renderer.markSkinAsPrivate(this.faceSkinId);
+        }
+
+        this.renderer.updateDrawableSkinId(this.faceDrawableId, this.faceSkinId);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, true);
+        this.renderer.updateDrawableEffect(this.faceDrawableId, 'ghost', 0); // 确保没有透明度
+
+
+        this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);  
+        // 更新 renderer 的 skin 内容
+        const imageData = this.canvasCtx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.renderer.updateBitmapSkin(this.faceSkinId, imageData, 1);
+        this.renderer.updateDrawableVisible(this.faceDrawableId, false);
+        this.runtime.requestRedraw();
+    }
+
+    test(){
+        console.log('调用了test')
     }
 
     /**
@@ -143,8 +3019,11 @@ class Video {
         }
         this._renderPreviewFrame = null;
     }
+    
 
     _setupPreview () {
+        console.log('---------------------------')
+        console.log(this.provider)
         const {renderer} = this.runtime;
         if (!renderer) return;
 
@@ -152,13 +3031,11 @@ class Video {
             this._skinId = renderer.createBitmapSkin(new ImageData(...Video.DIMENSIONS), 1);
             this._drawable = renderer.createDrawable(StageLayering.VIDEO_LAYER);
             renderer.updateDrawableSkinId(this._drawable, this._skinId);
+
             // TW: Video probably contains the user's face. This is private information.
             // This API won't exist if we're using a vanilla scratch-render
             if (renderer.markSkinAsPrivate) {
                 renderer.markSkinAsPrivate(this._skinId);
-            }
-            if (renderer.markDrawableAsNoninteractive) {
-                renderer.markDrawableAsNoninteractive(this._drawable);
             }
         }
 

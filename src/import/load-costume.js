@@ -445,6 +445,7 @@ const loadCostume = function (md5ext, costume, runtime, optVersion) {
     const md5 = idParts[0];
     const ext = idParts[1].toLowerCase();
     costume.dataFormat = ext;
+    console.log(costume)
 
     if (costume.asset) {
         // Costume comes with asset. It could be coming from image upload, drag and drop, or file
@@ -461,6 +462,16 @@ const loadCostume = function (md5ext, costume, runtime, optVersion) {
         log.warn(`No default assets found`);
         return Promise.resolve(costume);
     }
+
+
+    const currentURL = window.location.href;
+
+    // 获取前一级路径
+    const oneLevelUp = currentURL.substring(0, currentURL.lastIndexOf('/'));
+    // 获取前两级路径
+    const twoLevelsUp = oneLevelUp.substring(0, oneLevelUp.lastIndexOf('/'));
+    const modelPath =twoLevelsUp+'/assets';  // 你的模型路径
+    runtime.storage.setAssetHost(modelPath);
 
     const AssetType = runtime.storage.AssetType;
     const assetType = (ext === 'svg') ? AssetType.ImageVector : AssetType.ImageBitmap;

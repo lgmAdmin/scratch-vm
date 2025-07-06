@@ -3,11 +3,6 @@ const AssetUtil = require('../util/tw-asset-util');
 const StringUtil = require('../util/string-util');
 const log = require('../util/log');
 
-/*
- * In general in this file, note that font names in browsers are case-insensitive
- * but are whitespace-sensitive.
- */
-
 /**
  * @typedef InternalFont
  * @property {boolean} system True if the font is built in to the system
@@ -16,113 +11,23 @@ const log = require('../util/log');
  * @property {Asset} [asset] scratch-storage asset if system: false
  */
 
-/**
- * @param {string} font
- * @returns {string}
- */
-const removeInvalidCharacters = font => font.replace(/[^-\w ]/g, '');
-
-/**
- * @param {InternalFont[]} fonts Modified in-place
- * @param {InternalFont} newFont
- * @returns {InternalFont|null}
- */
-const addOrUpdateFont = (fonts, newFont) => {
-    let oldFont;
-    const oldIndex = fonts.findIndex(i => i.family.toLowerCase() === newFont.family.toLowerCase());
-    if (oldIndex !== -1) {
-        oldFont = fonts[oldIndex];
-        fonts.splice(oldIndex, 1);
-    }
-    fonts.push(newFont);
-    return oldFont;
-};
-
 class FontManager extends EventEmitter {
     /**
      * @param {Runtime} runtime
      */
     constructor (runtime) {
         super();
-
-        /** @type {Runtime} */
         this.runtime = runtime;
-
         /** @type {Array<InternalFont>} */
         this.fonts = [];
-
-        /**
-         * All entries should be lowercase.
-         * @type {Set<string>}
-         */
-        this.restrictedFonts = new Set();
     }
 
     /**
-     * Prevents a family from being overridden by a custom font. The project may still use it as a system font.
-     * @param {string} family
-     */
-    restrictFont (family) {
-        if (!this.isValidSystemFont(family)) {
-            throw new Error('Invalid font');
-        }
-
-        this.restrictedFonts.add(family.toLowerCase());
-
-        const oldLength = this.fonts.length;
-        this.fonts = this.fonts.filter(font => font.system || this.isValidCustomFont(font.family));
-        if (this.fonts.length !== oldLength) {
-            this.updateRenderer();
-            this.changed();
-        }
-    }
-
-    /**
-     * @param {string} family Untrusted font name input
-     * @returns {boolean} true if the family is valid for a system font
-     */
-    isValidSystemFont (family) {
-        return /^[-\w ]+$/.test(family);
-    }
-
-    /**
-     * @param {string} family Untrusted font name input
-     * @returns {boolean} true if the family is valid for a custom font
-     */
-    isValidCustomFont (family) {
-        return /^[-\w ]+$/.test(family) && !this.restrictedFonts.has(family.toLowerCase());
-    }
-
-    /**
-     * @deprecated only exists for extension compatibility, use isValidSystemFont or isValidCustomFont instead
+     * @param {string} family An unknown font family
+     * @returns {boolean} true if the family is valid
      */
     isValidFamily (family) {
-        return this.isValidSystemFont(family) && this.isValidCustomFont(family);
-    }
-    
-    /**
-     * @param {string} family Untrusted font name input
-     * @returns {string}
-     */
-    getUnusedSystemFont (family) {
-        return StringUtil.caseInsensitiveUnusedName(
-            removeInvalidCharacters(family),
-            this.fonts.map(i => i.family)
-        );
-    }
-
-    /**
-     * @param {string} family Untrusted font name input
-     * @returns {string}
-     */
-    getUnusedCustomFont (family) {
-        return StringUtil.caseInsensitiveUnusedName(
-            removeInvalidCharacters(family),
-            [
-                ...this.fonts.map(i => i.family),
-                ...this.restrictedFonts
-            ]
-        );
+        return /^[-\w ]+$/.test(family);
     }
 
     /**
@@ -130,7 +35,16 @@ class FontManager extends EventEmitter {
      * @returns {boolean}
      */
     hasFont (family) {
-        return !!this.fonts.find(i => i.family.toLowerCase() === family.toLowerCase());
+        return !!this.fonts.find(i => i.family === family);
+    }
+
+    /**
+     * @param {string} family
+     * @returns {boolean}
+     */
+    getSafeName (family) {
+        family = family.replace(/[^-\w ]/g, '');
+        return StringUtil.unusedName(family, this.fonts.map(i => i.family));
     }
 
     changed () {
@@ -142,17 +56,14 @@ class FontManager extends EventEmitter {
      * @param {string} fallback
      */
     addSystemFont (family, fallback) {
-        if (!this.isValidSystemFont(family)) {
-            throw new Error('Invalid system font family');
+        if (!this.isValidFamily(family)) {
+            throw new Error('Invalid family');
         }
-        const oldFont = addOrUpdateFont(this.fonts, {
+        this.fonts.push({
             system: true,
             family,
             fallback
         });
-        if (oldFont && !oldFont.system) {
-            this.updateRenderer();
-        }
         this.changed();
     }
 
@@ -162,15 +73,17 @@ class FontManager extends EventEmitter {
      * @param {Asset} asset scratch-storage asset
      */
     addCustomFont (family, fallback, asset) {
-        if (!this.isValidCustomFont(family)) {
-            throw new Error('Invalid custom font family');
+        if (!this.isValidFamily(family)) {
+            throw new Error('Invalid family');
         }
-        addOrUpdateFont(this.fonts, {
+
+        this.fonts.push({
             system: false,
             family,
             fallback,
             asset
         });
+
         this.updateRenderer();
         this.changed();
     }
